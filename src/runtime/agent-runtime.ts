@@ -1,5 +1,4 @@
 import { RuntimeError } from "../errors/runtime-errors.js";
-import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { RuntimeEventBus } from "../events/runtime-events.js";
 import {
   assertNonEmptyValue,
@@ -27,7 +26,7 @@ export class AgentRuntime {
   private readonly dependencies: ReturnType<typeof createRuntimeDependencies>;
   private readonly runtimeId: string;
   private readonly inFlightTasks = new Set<string>();
-  private readonly inFlightPromises = new Map<string, Promise<void>>();
+  private readonly inFlightPromises = new Map<string, Promise<unknown>>();
   private started = false;
   private stopped = false;
 
@@ -94,55 +93,30 @@ export class AgentRuntime {
     this.started = false;
 
     const drainStartMs = Date.now();
-    let strandedTaskIds: string[] = [];
+    const shouldDrain =
+      options.drainTimeoutMs !== undefined && options.drainTimeoutMs > 0;
 
-    if (options.drainTimeoutMs !== undefined && options.drainTimeoutMs > 0) {
-      await this.awaitInFlightTasks(options.drainTimeoutMs);
+    if (shouldDrain) {
+      await this.awaitInFlightTasks(options.drainTimeoutMs as number);
     }
 
-    // After draining, if there are still in-flight tasks, warn
-    if (this.inFlightTasks.size > 0) {
-      const stranded = Array.from(this.inFlightTasks);
-      this.dependencies.logger.warn(
-        `AgentRuntime.stop() timed out after ${options.drainTimeoutMs}ms with ${stranded.length} task(s) still in flight: ${stranded.join(", ")}`,
-        {
-          runtimeId: this.runtimeId,
-          strandedTaskIds: stranded,
-          drainTimeoutMs: options.drainTimeoutMs,
-          elapsedMs: options.drainTimeoutMs
-        }
-      );
-      this.dependencies.eventBus.emit({
-        name: "runtime.stopped",
-        payload: {
-          runtimeId: this.runtimeId,
-          occurredAt: new Date().toISOString(),
-          strandedTaskIds: stranded,
-          drainTimeoutMs: options.drainTimeoutMs
-        }
-      });
-    }
-
-    // Clear in-flight tracking — runtime is stopped, no new tasks can start.
-    // Stranded tasks that are still running will clean themselves up via their
-    // finally blocks when they eventually resolve/reject.
-    this.inFlightTasks.clear();
-
-    if (options.clearListeners === true) {
-      const eventBus = this.dependencies.eventBus as RuntimeEventBus & {
-        clear?: () => void;
-      };
-      eventBus.clear?.();
-    }
-
+    const strandedTaskIds =
+      shouldDrain && this.inFlightTasks.size > 0
+        ? Array.from(this.inFlightTasks)
+        : [];
     const drainDurationMs = Date.now() - drainStartMs;
 
     if (strandedTaskIds.length > 0) {
       this.dependencies.logger.warn(
-        "Runtime stopped with stranded in-flight tasks.",
+        `Runtime stopped with stranded in-flight tasks. Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
         {
           runtimeId: this.runtimeId,
           strandedTaskIds,
+          strandedTasks: strandedTaskIds,
+          inFlightTasks: strandedTaskIds,
+          inFlightTaskCount: strandedTaskIds.length,
+          drainTimeoutMs: options.drainTimeoutMs,
+          elapsedDrainMs: drainDurationMs,
           drainDurationMs
         }
       );
@@ -162,22 +136,47 @@ export class AgentRuntime {
       stoppedPayload.strandedTaskIds = strandedTaskIds;
     }
 
+    // The runtime is no longer admitting work. Clear tracking even if a task
+    // outlives the drain deadline; its own finally block remains safe to run.
+    this.inFlightTasks.clear();
+    this.inFlightPromises.clear();
+
     this.dependencies.eventBus.emit({
       name: "runtime.stopped",
       payload: stoppedPayload
     });
+
+    if (options.clearListeners === true) {
+      const eventBus = this.dependencies.eventBus as RuntimeEventBus & {
+        clear?: () => void;
+      };
+      eventBus.clear?.();
+    }
   }
 
   /**
    * Execute a task on the runtime.
    *
-   * Note: Task IDs must be unique while in flight. Attempting to start a task with
-   * a `taskId` that is already actively running will reject with a DUPLICATE_IN_FLIGHT_TASK error.
+   * Task IDs must be unique while in flight. Attempting to start a task with a
+   * taskId that is already actively running rejects before lifecycle emission.
    */
   public async executeTask<TPayload, TResult>(
     task: RuntimeTask<TPayload>
   ): Promise<TaskExecutionResult<TResult>> {
     assertRuntimeStarted(this.started);
+    assertNonEmptyValue(task.taskId, "taskId");
+    assertNonEmptyValue(task.agentId, "agentId");
+    assertNonEmptyValue(task.toolName, "toolName");
+    assertNonEmptyValue(task.input, "input");
+
+    if (this.inFlightTasks.has(task.taskId)) {
+      throw new RuntimeError(
+        "DUPLICATE_IN_FLIGHT_TASK",
+        `Task "${task.taskId}" is already in flight.`,
+        { taskId: task.taskId }
+      );
+    }
+
     const agent = this.dependencies.agentManager.getOrCreate(task.agentId);
     const context: RuntimeContext = {
       runtimeId: this.runtimeId,
@@ -189,10 +188,9 @@ export class AgentRuntime {
       now: new Date().toISOString()
     };
 
-    assertNonEmptyValue(task.taskId, "taskId");
-    assertNonEmptyValue(task.agentId, "agentId");
-    assertNonEmptyValue(task.toolName, "toolName");
-    assertNonEmptyValue(task.input, "input");
+    // Reserve the ID before lifecycle callbacks run so a re-entrant listener
+    // cannot admit a second task with the same ID.
+    this.inFlightTasks.add(task.taskId);
 
     this.dependencies.eventBus.emit({
       name: "runtime.task.received",
@@ -208,8 +206,6 @@ export class AgentRuntime {
       taskId: task.taskId,
       toolName: task.toolName
     });
-
-    this.inFlightTasks.add(task.taskId);
 
     const taskPromise = (async () => {
       try {
@@ -235,6 +231,7 @@ export class AgentRuntime {
         });
         return result;
       } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
         this.dependencies.logger.error("Runtime task failed.", {
           runtimeId: this.runtimeId,
           taskId: task.taskId,
@@ -242,13 +239,12 @@ export class AgentRuntime {
           error
         });
         this.dependencies.eventBus.emit({
-          name: "runtime.task.error",
+          name: "runtime.task.failed",
           payload: {
             runtimeId: this.runtimeId,
             taskId: task.taskId,
             agentId: task.agentId,
-            toolName: task.toolName,
-            error
+            reason
           }
         });
         throw error;
