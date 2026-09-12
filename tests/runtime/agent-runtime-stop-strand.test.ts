@@ -52,13 +52,14 @@ describe("AgentRuntime.stop — stranded task warning (Issue #258)", () => {
     // Stop with a drain timeout shorter than the task duration
     await runtime.stop({ drainTimeoutMs: 50 });
 
-    // Task should still be in flight (timed out)
-    expect(runtime.getInFlightTaskCount()).toBe(0); // finally block cleaned up
+    // Runtime shutdown clears tracking even though the task may still settle later.
+    expect(runtime.getInFlightTaskCount()).toBe(0);
 
-    // A warn should have been logged with stranded task info
+    // A warn should have been logged with stranded task info. The message may
+    // append diagnostic detail; structured metadata is the stable contract.
     expect(warnSpy).toHaveBeenCalled();
-    const warnCall = warnSpy.mock.calls.find(
-      (call) => call[0] === "Runtime stopped with stranded in-flight tasks."
+    const warnCall = warnSpy.mock.calls.find((call) =>
+      String(call[0]).startsWith("Runtime stopped with stranded in-flight tasks.")
     );
     expect(warnCall).toBeDefined();
     expect(warnCall![1].strandedTaskIds).toContain("stranded-task-1");
