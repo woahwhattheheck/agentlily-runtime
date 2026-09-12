@@ -5,7 +5,12 @@ export interface RuntimeEventMap {
     occurredAt: string;
   };
   "runtime.started": { runtimeId: string; occurredAt: string };
-  "runtime.stopped": { runtimeId: string; occurredAt: string };
+  "runtime.stopped": {
+    runtimeId: string;
+    occurredAt: string;
+    strandedTaskIds?: string[];
+    drainDurationMs?: number;
+  };
   "runtime.task.received": {
     runtimeId: string;
     taskId: string;
