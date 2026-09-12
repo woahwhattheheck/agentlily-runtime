@@ -1,5 +1,4 @@
 import { RuntimeError } from "../errors/runtime-errors.js";
-import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { RuntimeEventBus } from "../events/runtime-events.js";
 import {
   assertNonEmptyValue,
@@ -98,42 +97,27 @@ export class AgentRuntime {
 
     if (options.drainTimeoutMs !== undefined && options.drainTimeoutMs > 0) {
       await this.awaitInFlightTasks(options.drainTimeoutMs);
+
+      if (this.inFlightTasks.size > 0) {
+        strandedTaskIds = Array.from(this.inFlightTasks);
+        const elapsedDrainMs = Date.now() - drainStartMs;
+        this.dependencies.logger.warn(
+          `Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
+          {
+            runtimeId: this.runtimeId,
+            inFlightTaskCount: strandedTaskIds.length,
+            inFlightTasks: strandedTaskIds,
+            strandedTasks: strandedTaskIds,
+            drainTimeoutMs: options.drainTimeoutMs,
+            elapsedDrainMs
+          }
+        );
+      }
     }
 
-    // After draining, if there are still in-flight tasks, warn
-    if (this.inFlightTasks.size > 0) {
-      const stranded = Array.from(this.inFlightTasks);
-      this.dependencies.logger.warn(
-        `AgentRuntime.stop() timed out after ${options.drainTimeoutMs}ms with ${stranded.length} task(s) still in flight: ${stranded.join(", ")}`,
-        {
-          runtimeId: this.runtimeId,
-          strandedTaskIds: stranded,
-          drainTimeoutMs: options.drainTimeoutMs,
-          elapsedMs: options.drainTimeoutMs
-        }
-      );
-      this.dependencies.eventBus.emit({
-        name: "runtime.stopped",
-        payload: {
-          runtimeId: this.runtimeId,
-          occurredAt: new Date().toISOString(),
-          strandedTaskIds: stranded,
-          drainTimeoutMs: options.drainTimeoutMs
-        }
-      });
-    }
-
-    // Clear in-flight tracking — runtime is stopped, no new tasks can start.
-    // Stranded tasks that are still running will clean themselves up via their
-    // finally blocks when they eventually resolve/reject.
+    // Runtime shutdown is terminal. Tasks that outlive an explicit drain timeout
+    // keep their own promises, but are no longer reported as runtime-owned work.
     this.inFlightTasks.clear();
-
-    if (options.clearListeners === true) {
-      const eventBus = this.dependencies.eventBus as RuntimeEventBus & {
-        clear?: () => void;
-      };
-      eventBus.clear?.();
-    }
 
     const drainDurationMs = Date.now() - drainStartMs;
 
@@ -162,22 +146,43 @@ export class AgentRuntime {
       stoppedPayload.strandedTaskIds = strandedTaskIds;
     }
 
+    // Publish one terminal lifecycle event before optionally clearing listeners.
     this.dependencies.eventBus.emit({
       name: "runtime.stopped",
       payload: stoppedPayload
     });
+
+    if (options.clearListeners === true) {
+      const eventBus = this.dependencies.eventBus as RuntimeEventBus & {
+        clear?: () => void;
+      };
+      eventBus.clear?.();
+    }
   }
 
   /**
    * Execute a task on the runtime.
    *
-   * Note: Task IDs must be unique while in flight. Attempting to start a task with
-   * a `taskId` that is already actively running will reject with a DUPLICATE_IN_FLIGHT_TASK error.
+   * Task IDs are unique only while active. A completed or failed task ID may be
+   * reused, but a concurrent duplicate is rejected before lifecycle side effects.
    */
   public async executeTask<TPayload, TResult>(
     task: RuntimeTask<TPayload>
   ): Promise<TaskExecutionResult<TResult>> {
     assertRuntimeStarted(this.started);
+    assertNonEmptyValue(task.taskId, "taskId");
+    assertNonEmptyValue(task.agentId, "agentId");
+    assertNonEmptyValue(task.toolName, "toolName");
+    assertNonEmptyValue(task.input, "input");
+
+    if (this.inFlightTasks.has(task.taskId)) {
+      throw new RuntimeError(
+        "DUPLICATE_IN_FLIGHT_TASK",
+        `Task "${task.taskId}" is already in flight.`,
+        { taskId: task.taskId }
+      );
+    }
+
     const agent = this.dependencies.agentManager.getOrCreate(task.agentId);
     const context: RuntimeContext = {
       runtimeId: this.runtimeId,
@@ -189,77 +194,81 @@ export class AgentRuntime {
       now: new Date().toISOString()
     };
 
-    assertNonEmptyValue(task.taskId, "taskId");
-    assertNonEmptyValue(task.agentId, "agentId");
-    assertNonEmptyValue(task.toolName, "toolName");
-    assertNonEmptyValue(task.input, "input");
-
-    this.dependencies.eventBus.emit({
-      name: "runtime.task.received",
-      payload: {
-        runtimeId: this.runtimeId,
-        taskId: task.taskId,
-        agentId: task.agentId
-      }
-    });
-
-    this.dependencies.logger.info("Executing runtime task.", {
-      runtimeId: this.runtimeId,
-      taskId: task.taskId,
-      toolName: task.toolName
-    });
-
+    // Reserve the task ID synchronously before publishing the received event so
+    // a listener cannot re-enter executeTask() with the same active ID.
     this.inFlightTasks.add(task.taskId);
 
-    const taskPromise = (async () => {
-      try {
-        const result = await this.dependencies.taskRunner.run<TPayload, TResult>(
-          task,
-          context
-        );
-        this.dependencies.logger.info("Runtime task completed.", {
+    let resolveInFlight!: () => void;
+    const inFlightPromise = new Promise<void>((resolve) => {
+      resolveInFlight = resolve;
+    });
+    this.inFlightPromises.set(task.taskId, inFlightPromise);
+
+    try {
+      this.dependencies.eventBus.emit({
+        name: "runtime.task.received",
+        payload: {
           runtimeId: this.runtimeId,
           taskId: task.taskId,
+          agentId: task.agentId
+        }
+      });
+
+      this.dependencies.logger.info("Executing runtime task.", {
+        runtimeId: this.runtimeId,
+        taskId: task.taskId,
+        toolName: task.toolName
+      });
+
+      const result = await this.dependencies.taskRunner.run<TPayload, TResult>(
+        task,
+        context
+      );
+
+      this.dependencies.logger.info("Runtime task completed.", {
+        runtimeId: this.runtimeId,
+        taskId: task.taskId,
+        toolName: task.toolName,
+        durationMs: result.durationMs
+      });
+
+      this.dependencies.eventBus.emit({
+        name: "runtime.task.completed",
+        payload: {
+          runtimeId: this.runtimeId,
+          taskId: task.taskId,
+          agentId: task.agentId,
           toolName: task.toolName,
           durationMs: result.durationMs
-        });
-        this.dependencies.eventBus.emit({
-          name: "runtime.task.completed",
-          payload: {
-            runtimeId: this.runtimeId,
-            taskId: task.taskId,
-            agentId: task.agentId,
-            toolName: task.toolName,
-            durationMs: result.durationMs
-          }
-        });
-        return result;
-      } catch (error) {
-        this.dependencies.logger.error("Runtime task failed.", {
+        }
+      });
+
+      return result;
+    } catch (error) {
+      const reason =
+        error instanceof Error ? error.message : "Unknown runtime failure.";
+
+      this.dependencies.logger.error("Runtime task failed.", {
+        runtimeId: this.runtimeId,
+        taskId: task.taskId,
+        reason
+      });
+      this.dependencies.eventBus.emit({
+        name: "runtime.task.failed",
+        payload: {
           runtimeId: this.runtimeId,
           taskId: task.taskId,
-          toolName: task.toolName,
-          error
-        });
-        this.dependencies.eventBus.emit({
-          name: "runtime.task.error",
-          payload: {
-            runtimeId: this.runtimeId,
-            taskId: task.taskId,
-            agentId: task.agentId,
-            toolName: task.toolName,
-            error
-          }
-        });
-        throw error;
-      } finally {
-        this.inFlightTasks.delete(task.taskId);
-        this.inFlightPromises.delete(task.taskId);
-      }
-    })();
+          agentId: task.agentId,
+          reason
+        }
+      });
 
-    this.inFlightPromises.set(task.taskId, taskPromise);
-    return taskPromise;
+      throw error;
+    } finally {
+      this.inFlightTasks.delete(task.taskId);
+      this.inFlightPromises.delete(task.taskId);
+      resolveInFlight();
+    }
   }
 
   private async awaitInFlightTasks(timeoutMs: number): Promise<void> {
@@ -268,10 +277,17 @@ export class AgentRuntime {
       return;
     }
 
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
-      setTimeout(resolve, timeoutMs);
+      timeoutHandle = setTimeout(resolve, timeoutMs);
     });
 
-    await Promise.race([Promise.all(promises), timeout]);
+    try {
+      await Promise.race([Promise.all(promises).then(() => undefined), timeout]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 }
