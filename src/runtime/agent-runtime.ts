@@ -101,13 +101,16 @@ export class AgentRuntime {
       await this.awaitInFlightTasks(options.drainTimeoutMs as number);
       if (this.inFlightTasks.size > 0) {
         strandedTaskIds = Array.from(this.inFlightTasks);
+        const elapsedDrainMs = Date.now() - drainStartedAt;
         this.dependencies.logger.warn(
-          "Tasks still in flight after drain timeout.",
+          `Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
           {
             runtimeId: this.runtimeId,
             inFlightTaskCount: strandedTaskIds.length,
             inFlightTasks: strandedTaskIds,
-            drainTimeoutMs: options.drainTimeoutMs
+            strandedTasks: strandedTaskIds,
+            drainTimeoutMs: options.drainTimeoutMs,
+            elapsedDrainMs
           }
         );
       }
