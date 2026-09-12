@@ -16,7 +16,10 @@ export interface RuntimeOptions {
    */
   maxAgentInstances?: number;
   maxToolCallsPerTask?: number;
-  maxAgentInstances?: number;
+  /** Maximum number of per-task tool-call counters retained by the executor. */
+  maxTrackedTasks?: number;
+  /** Maximum task execution duration before the task runner rejects. */
+  maxTaskDurationMs?: number;
   memoryStore?: MemoryStore;
   memoryStoragePath?: string | undefined;
   modelProvider?: ModelProvider;
