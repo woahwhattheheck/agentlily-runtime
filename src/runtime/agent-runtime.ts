@@ -100,33 +100,27 @@ export class AgentRuntime {
 
       if (this.inFlightTasks.size > 0) {
         strandedTaskIds = Array.from(this.inFlightTasks);
-        const elapsedDrainMs = Date.now() - drainStartMs;
-        this.dependencies.logger.warn(
-          `Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
-          {
-            runtimeId: this.runtimeId,
-            inFlightTaskCount: strandedTaskIds.length,
-            inFlightTasks: strandedTaskIds,
-            strandedTasks: strandedTaskIds,
-            drainTimeoutMs: options.drainTimeoutMs,
-            elapsedDrainMs
-          }
-        );
       }
     }
 
     // Runtime shutdown is terminal. Tasks that outlive an explicit drain timeout
     // keep their own promises, but are no longer reported as runtime-owned work.
     this.inFlightTasks.clear();
+    this.inFlightPromises.clear();
 
     const drainDurationMs = Date.now() - drainStartMs;
 
     if (strandedTaskIds.length > 0) {
       this.dependencies.logger.warn(
-        "Runtime stopped with stranded in-flight tasks.",
+        `Runtime stopped with stranded in-flight tasks. Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
         {
           runtimeId: this.runtimeId,
           strandedTaskIds,
+          strandedTasks: strandedTaskIds,
+          inFlightTasks: strandedTaskIds,
+          inFlightTaskCount: strandedTaskIds.length,
+          drainTimeoutMs: options.drainTimeoutMs,
+          elapsedDrainMs: drainDurationMs,
           drainDurationMs
         }
       );
