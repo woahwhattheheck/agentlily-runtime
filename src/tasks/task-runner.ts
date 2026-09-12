@@ -36,7 +36,7 @@ export class TaskRunner {
 
     // Tool execution errors are part of the tool contract and must propagate
     // unchanged so callers retain the original error identity and code.
-    const output = await this.actionExecutor.execute<TPayload, TResult>(
+    const output = await this.executeWithTimeout<TPayload, TResult>(
       task.toolName,
       task.payload,
       context
