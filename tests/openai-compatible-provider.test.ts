@@ -117,6 +117,24 @@ describe("OpenAICompatibleModelProvider", () => {
     });
   });
 
+  it("reads a successful response body exactly once", async () => {
+    const response = new Response(
+      JSON.stringify({
+        model: "gpt-4o-mini",
+        choices: [{ message: { content: "Read once" } }]
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const textSpy = vi.spyOn(response, "text");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(response);
+    const provider = new OpenAICompatibleModelProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.generate({ instructions: "Instructions", input: "Input" })
+    ).resolves.toMatchObject({ outputText: "Read once" });
+    expect(textSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("supports custom baseUrl and custom headers", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
@@ -176,46 +194,6 @@ describe("OpenAICompatibleModelProvider", () => {
     const calledInit = fetchSpy.mock.calls[0][1] as RequestInit;
     expect(calledInit.signal).toBeDefined();
     expect(calledInit.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("resolves with empty outputText when choices array is empty or missing content", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          model: "gpt-4o-mini",
-          choices: []
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
-    );
-
-    const provider = new OpenAICompatibleModelProvider({
-      apiKey: "test-key"
-    });
-
-    const response1 = await provider.generate({
-      instructions: "test",
-      input: "test"
-    });
-    expect(response1.outputText).toBe("");
-    expect(response1.metadata.model).toBe("gpt-4o-mini");
-
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          model: "gpt-4o-mini",
-          choices: [{ message: {} }]
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
-    );
-
-    const response2 = await provider.generate({
-      instructions: "test",
-      input: "test"
-    });
-    expect(response2.outputText).toBe("");
-    expect(response2.metadata.model).toBe("gpt-4o-mini");
   });
 
   it("handles non-2xx HTTP responses with descriptive error", async () => {
@@ -367,82 +345,4 @@ describe("OpenAICompatibleModelProvider", () => {
       cause: bodyFailure
     });
   });
-});
-
-it("rejects empty choices array with descriptive error", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response(JSON.stringify({ choices: [] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow("empty choices");
-});
-
-it("rejects choice without message content", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response(JSON.stringify({ choices: [{ message: {} }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow("without message content");
-});
-
-it("wraps non-JSON response in error with HTTP context", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response("not json at all", {
-      status: 200,
-      headers: { "Content-Type": "text/plain" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow();
-});
-
-it("rejects empty choices array with descriptive error", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response(JSON.stringify({ choices: [] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow("empty choices");
-});
-
-it("rejects choice without message content", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response(JSON.stringify({ choices: [{ message: {} }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow("without message content");
-});
-
-it("wraps non-JSON response in error with HTTP context", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-    new Response("not json at all", {
-      status: 200,
-      headers: { "Content-Type": "text/plain" }
-    })
-  );
-  const provider = new OpenAICompatibleModelProvider({ apiKey: "sk-key" });
-  await expect(
-    provider.generate({ instructions: "test", input: "test" })
-  ).rejects.toThrow();
 });

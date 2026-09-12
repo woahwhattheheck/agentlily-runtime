@@ -16,17 +16,6 @@ export interface OpenAICompatibleProviderOptions {
   headers?: Record<string, string> | undefined;
 }
 
-type JsonObject = Record<string, unknown>;
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getBodyExcerpt(body: string): string {
-  const excerpt = body.replace(/\s+/g, " ").trim().slice(0, 200);
-  return excerpt.length > 0 ? excerpt : "<empty body>";
-}
-
 export class OpenAICompatibleModelProvider implements ModelProvider {
   public readonly name = "openai-compatible";
   private readonly apiKey: string;
@@ -106,21 +95,23 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       throw new Error(`OpenAI-compatible provider request failed: ${message}`);
     }
 
-    const rawBody = await response.text().catch(() => "");
-
-    if (!response.ok) {
-      throw new Error(
-        `OpenAI-compatible provider returned HTTP ${response.status}: ${rawBody}`
-      );
-    }
-
     let responseText: string;
     try {
       responseText = await response.text();
     } catch (error) {
+      if (!response.ok) {
+        responseText = "";
+      } else {
+        throw new Error(
+          `OpenAI-compatible provider could not read HTTP ${response.status} response body.`,
+          { cause: error }
+        );
+      }
+    }
+
+    if (!response.ok) {
       throw new Error(
-        `OpenAI-compatible provider could not read HTTP ${response.status} response body.`,
-        { cause: error }
+        `OpenAI-compatible provider returned HTTP ${response.status}: ${responseText}`
       );
     }
 
@@ -175,16 +166,4 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       metadata
     };
   }
-}
-
-function formatBodyExcerpt(body: string): string {
-  const compact = body.replace(/\s+/g, " ").trim();
-  if (compact.length === 0) {
-    return "<empty body>";
-  }
-
-  const maxLength = 500;
-  return compact.length > maxLength
-    ? `${compact.slice(0, maxLength)}...`
-    : compact;
 }
