@@ -16,7 +16,8 @@ export interface RuntimeOptions {
    */
   maxAgentInstances?: number;
   maxToolCallsPerTask?: number;
-  maxAgentInstances?: number;
+  /** Maximum wall-clock duration for one task execution before rejection. */
+  maxTaskDurationMs?: number;
   memoryStore?: MemoryStore;
   memoryStoragePath?: string | undefined;
   modelProvider?: ModelProvider;
