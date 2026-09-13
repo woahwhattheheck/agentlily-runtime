@@ -1,6 +1,8 @@
+import { RuntimeError } from "../errors/runtime-errors.js";
 import type { RuntimeEventBus } from "../events/runtime-events.js";
 import { assertMaxToolCalls } from "../guards/runtime-guards.js";
 import type { RuntimeLogger } from "../logger/runtime-logger.js";
+import type { ToolPolicy } from "../policies/tool-policy.js";
 import type { RuntimeContext } from "../runtime/context.js";
 import { ToolRegistry } from "../tools/tool-registry.js";
 
@@ -15,6 +17,7 @@ export interface ActionExecutorOptions {
   maxTrackedTasks?: number | undefined;
   logger?: RuntimeLogger | undefined;
   eventBus?: RuntimeEventBus | undefined;
+  toolPolicy?: ToolPolicy | undefined;
 }
 
 export class ActionExecutor {
@@ -23,13 +26,15 @@ export class ActionExecutor {
   private readonly eventBus: RuntimeEventBus | undefined;
   private readonly maxToolCallsPerTask: number | undefined;
   private readonly maxTrackedTasks: number;
+  private readonly toolPolicy: ToolPolicy | undefined;
 
   public constructor(
     private readonly toolRegistry: ToolRegistry,
     maxToolCallsPerTaskOrLogger?: number | RuntimeLogger,
     eventBus?: RuntimeEventBus,
     loggerOrMaxTrackedTasks?: RuntimeLogger | number,
-    maxTrackedTasks = 1_000
+    maxTrackedTasks = 1_000,
+    toolPolicy?: ToolPolicy
   ) {
     let resolvedLogger: RuntimeLogger | undefined;
     let resolvedMaxTrackedTasks = maxTrackedTasks;
@@ -57,6 +62,7 @@ export class ActionExecutor {
     this.logger = resolvedLogger;
     this.eventBus = eventBus;
     this.maxTrackedTasks = resolvedMaxTrackedTasks;
+    this.toolPolicy = toolPolicy;
   }
 
   public getToolCallCount(taskId: string): number {
@@ -78,8 +84,10 @@ export class ActionExecutor {
     payload: TPayload,
     context: RuntimeContext
   ): Promise<TResult> {
-    // Resolve first: an unknown tool must not consume the task's call budget.
+    // Resolve first: an unknown tool must not consume budget or invoke policy.
     const tool = this.toolRegistry.get(toolName);
+
+    await this.assertToolAllowed(toolName, payload, context);
 
     const currentCount = this.getToolCallCount(context.taskId);
     if (this.maxToolCallsPerTask !== undefined) {
@@ -109,6 +117,78 @@ export class ActionExecutor {
     });
 
     return result;
+  }
+
+  private async assertToolAllowed(
+    toolName: string,
+    payload: unknown,
+    context: RuntimeContext
+  ): Promise<void> {
+    if (this.toolPolicy === undefined) {
+      return;
+    }
+
+    let decision: Awaited<ReturnType<ToolPolicy["evaluate"]>>;
+    try {
+      decision = await this.toolPolicy.evaluate({ toolName, payload, context });
+    } catch (error) {
+      this.denyTool(
+        toolName,
+        context,
+        `Tool "${toolName}" denied because policy evaluation failed.`,
+        error
+      );
+    }
+
+    if (decision === true) {
+      return;
+    }
+    if (
+      typeof decision === "object" &&
+      decision !== null &&
+      decision.allowed === true
+    ) {
+      return;
+    }
+
+    const reason =
+      typeof decision === "object" &&
+      decision !== null &&
+      typeof decision.reason === "string"
+        ? decision.reason
+        : `Tool "${toolName}" is denied by runtime policy.`;
+
+    this.denyTool(toolName, context, reason);
+  }
+
+  private denyTool(
+    toolName: string,
+    context: RuntimeContext,
+    reason: string,
+    cause?: unknown
+  ): never {
+    this.eventBus?.emit({
+      name: "runtime.tool.denied",
+      payload: {
+        runtimeId: context.runtimeId,
+        taskId: context.taskId,
+        agentId: resolveAgentId(context.agent),
+        toolName,
+        reason,
+        deniedAt: new Date().toISOString()
+      }
+    });
+
+    throw new RuntimeError("TOOL_POLICY_DENIED", reason, {
+      toolName,
+      taskId: context.taskId,
+      reason,
+      ...(cause === undefined
+        ? {}
+        : {
+            cause: cause instanceof Error ? cause.message : String(cause)
+          })
+    });
   }
 
   private recordToolCall(taskId: string, count: number): void {
