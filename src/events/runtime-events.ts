@@ -36,6 +36,14 @@ export interface RuntimeEventMap {
     toolName: string;
     invokedAt: string;
   };
+  "runtime.tool.denied": {
+    runtimeId: string;
+    taskId: string;
+    agentId: string;
+    toolName: string;
+    reason: string;
+    deniedAt: string;
+  };
 }
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -184,8 +192,6 @@ export class RuntimeEventBus {
       return;
     }
 
-    // Snapshot so listeners added during dispatch do not fire on this emit,
-    // while still honoring removals that happen mid-dispatch.
     const snapshot = Array.from(listenerSet);
 
     for (const listener of snapshot) {
