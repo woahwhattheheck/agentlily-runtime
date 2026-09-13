@@ -10,7 +10,11 @@ import {
   ToolRegistry,
   UnconfiguredModelProvider
 } from "../../src/index.js";
-import type { RuntimeContext, ToolPolicy } from "../../src/index.js";
+import type {
+  RuntimeContext,
+  ToolPolicy,
+  ToolPolicyRequest
+} from "../../src/index.js";
 
 function createMockContext(taskId: string): RuntimeContext {
   return {
@@ -87,7 +91,9 @@ describe("runtime tool policies", () => {
     );
     const context = createMockContext("deny-task");
 
-    await expect(executor.execute("write", { value: 1 }, context)).rejects.toMatchObject({
+    await expect(
+      executor.execute("write", { value: 1 }, context)
+    ).rejects.toMatchObject({
       name: "RuntimeError",
       code: "TOOL_POLICY_DENIED",
       details: {
@@ -123,7 +129,7 @@ describe("runtime tool policies", () => {
       execute: () => "ok"
     });
 
-    const evaluate = vi.fn(async (request) => ({
+    const evaluate = vi.fn(async (request: ToolPolicyRequest) => ({
       allowed:
         request.toolName === "conditional" &&
         request.context.taskId === "approved-task" &&
