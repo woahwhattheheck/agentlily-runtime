@@ -12,7 +12,7 @@
 
 ## Stellar at a Glance
 
-- **`wallet.prepare_payment` tool (shipped today)** — a real, typed tool an AgentLily invokes to prepare a payment for its wallet: it validates the wallet and amount, defaults the asset to **native `XLM`**, and returns a simulated **Stellar transaction stub** (`stellar-stub-<taskId>-<walletId>`) — no live network call, safe for contributors to extend toward real submission.
+- **`wallet.prepare_payment` tool (shipped today)** — a real, typed tool an AgentLily invokes to prepare a payment for its wallet: it validates the wallet and amount, defaults the asset to **native `XLM`**, and returns a simulated **Stellar transaction stub** (`stellar-stub-<taskId>-<walletId>-<sha256-intent>`) — no live network call, safe for contributors to extend toward real submission. The digest binds recipient, asset, canonical amount in stroops, and memo so distinct payment intents cannot share a stub ID; metadata is audit context and does not change payment identity.
 - **Payment-aware action boundary** — `src/actions/` shows how wallet/payment actions are structured; the scaffolding for executing against the live **Stellar network** (via Lily backend + Soroban contracts) is intentionally open contributor work.
 - **Event-driven & auditable** — every task and tool invocation emits runtime events so Stellar finance actions are traceable from intent → prepared transaction stub.
 
@@ -160,13 +160,15 @@ const prepared = await runtime.executeTask({
 
 // prepared.output → {
 //   status: "prepared",
-//   transactionStubId: "stellar-stub-pay-001-wallet_treasury",
+//   transactionStubId: "stellar-stub-pay-001-wallet_treasury-<64-hex-intent-digest>",
 //   assetCode: "XLM",
 //   amount: "25.00",
 //   isSimulated: true,
 //   ...
 // }
 ```
+
+For stub identity, equivalent Stellar amount spellings resolve through their exact stroop value, so `"1"`, `"1.0"`, and numeric `1` share an ID when the rest of the payment intent is unchanged. Changing the recipient, asset, amount, or memo changes the ID. `metadata` is returned for audit context but is intentionally excluded from payment identity.
 
 ## Runtime Events
 
