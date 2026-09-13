@@ -273,6 +273,7 @@ export class AgentRuntime {
 
       throw error;
     } finally {
+      this.dependencies.actionExecutor.reset(task.taskId);
       this.inFlightTasks.delete(task.taskId);
       this.inFlightPromises.delete(task.taskId);
       resolveInFlight();
