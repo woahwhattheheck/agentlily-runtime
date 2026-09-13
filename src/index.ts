@@ -32,6 +32,11 @@ export {
   InMemoryMemoryStore,
   JsonFileMemoryStore
 } from "./memory/memory-store.js";
+export {
+  InMemoryToolApprovalStore,
+  ToolApprovalPolicy,
+  digestToolApprovalPayload
+} from "./policies/tool-approval-policy.js";
 export { ToolAllowlistPolicy } from "./policies/tool-policy.js";
 export { UnconfiguredModelProvider } from "./providers/model-provider.js";
 export { OpenAICompatibleModelProvider } from "./providers/openai-compatible-provider.js";
@@ -73,6 +78,15 @@ export type {
   MemoryEntry,
   MemoryStore
 } from "./memory/memory-store.js";
+export type {
+  InMemoryToolApprovalStoreOptions,
+  ToolApprovalConsumeDecision,
+  ToolApprovalConsumeRequest,
+  ToolApprovalGrantRequest,
+  ToolApprovalPolicyOptions,
+  ToolApprovalRecord,
+  ToolApprovalStore
+} from "./policies/tool-approval-policy.js";
 export type {
   ToolPolicy,
   ToolPolicyDecision,
