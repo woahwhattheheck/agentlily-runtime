@@ -16,6 +16,7 @@ export interface ToolApprovalGrantRequest {
 
 export interface ToolApprovalRecord {
   approvalId: string;
+  runtimeId: string;
   taskId: string;
   agentId: string;
   toolName: string;
@@ -27,6 +28,7 @@ export interface ToolApprovalRecord {
 }
 
 export interface ToolApprovalConsumeRequest {
+  runtimeId: string;
   taskId: string;
   agentId: string;
   toolName: string;
@@ -46,6 +48,7 @@ export interface ToolApprovalStore {
 }
 
 export interface InMemoryToolApprovalStoreOptions {
+  runtimeId: string;
   now?: () => Date;
 }
 
@@ -205,17 +208,30 @@ function cloneRecord(record: ToolApprovalRecord): ToolApprovalRecord {
   return { ...record };
 }
 
+type InMemoryToolApprovalConsumeRequest = Omit<
+  ToolApprovalConsumeRequest,
+  "runtimeId"
+> & {
+  runtimeId?: string;
+};
+
 /**
  * Single-process approval authority with atomic one-time consumption.
+ *
+ * The store is permanently scoped to one runtime ID. Reusing it from a policy
+ * attached to a different runtime fails closed, so otherwise-identical task,
+ * agent, tool, and payload tuples cannot cross runtime trust boundaries.
  *
  * This store intentionally does not claim restart or multi-process durability;
  * callers that need those properties can provide another ToolApprovalStore.
  */
 export class InMemoryToolApprovalStore implements ToolApprovalStore {
   private readonly approvals = new Map<string, ToolApprovalRecord>();
+  private readonly runtimeId: string;
   private readonly now: () => Date;
 
-  public constructor(options: InMemoryToolApprovalStoreOptions = {}) {
+  public constructor(options: InMemoryToolApprovalStoreOptions) {
+    this.runtimeId = requireNonEmpty("runtimeId", options.runtimeId);
     this.now = options.now ?? (() => new Date());
   }
 
@@ -248,6 +264,7 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
 
     const record: ToolApprovalRecord = {
       approvalId,
+      runtimeId: this.runtimeId,
       taskId,
       agentId,
       toolName,
@@ -282,9 +299,33 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
     return record === undefined ? undefined : cloneRecord(record);
   }
 
+  public consume(request: ToolApprovalConsumeRequest): ToolApprovalConsumeDecision;
   public consume(
-    request: ToolApprovalConsumeRequest
+    request: InMemoryToolApprovalConsumeRequest
+  ): ToolApprovalConsumeDecision;
+  public consume(
+    request: InMemoryToolApprovalConsumeRequest
   ): ToolApprovalConsumeDecision {
+    let runtimeId: string;
+    try {
+      runtimeId =
+        request.runtimeId === undefined
+          ? this.runtimeId
+          : requireNonEmpty("runtimeId", request.runtimeId);
+    } catch {
+      return {
+        approved: false,
+        reason: "Tool invocation is missing a valid runtime identity."
+      };
+    }
+
+    if (runtimeId !== this.runtimeId) {
+      return {
+        approved: false,
+        reason: `Human approval authority is scoped to runtime "${this.runtimeId}".`
+      };
+    }
+
     let payloadDigest: string;
     try {
       payloadDigest = digestToolApprovalPayload(request.payload);
@@ -308,6 +349,7 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
 
     for (const [approvalId, record] of this.approvals) {
       if (
+        record.runtimeId !== runtimeId ||
         record.taskId !== request.taskId ||
         record.agentId !== request.agentId ||
         record.toolName !== request.toolName ||
@@ -411,6 +453,7 @@ export class ToolApprovalPolicy implements ToolPolicy {
     }
 
     const approval = await this.approvalStore.consume({
+      runtimeId: request.context.runtimeId,
       taskId: request.context.taskId,
       agentId,
       toolName: request.toolName,

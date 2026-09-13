@@ -31,7 +31,10 @@ function createContext(
 }
 
 function createStore(now: () => Date = () => new Date(FIXED_NOW)) {
-  return new InMemoryToolApprovalStore({ now });
+  return new InMemoryToolApprovalStore({
+    runtimeId: "approval-test-runtime",
+    now
+  });
 }
 
 describe("tool approval authority", () => {

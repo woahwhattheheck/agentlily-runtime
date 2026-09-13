@@ -1,9 +1,10 @@
-# Payload-Bound Tool Approvals
+# Runtime- and Payload-Bound Tool Approvals
 
 `ToolApprovalPolicy` adds a one-time human approval boundary for selected runtime tools. It is intended for operations where a static allowlist is not enough: a trusted control plane must approve the **exact invocation** before the runtime can execute it.
 
 An approval is bound to all of the following:
 
+- `runtimeId`
 - `taskId`
 - `agentId`
 - exact `toolName`
@@ -14,6 +15,8 @@ Changing any bound field invalidates the grant. A matching approval is consumed 
 ## Trust boundary
 
 `approve()` is an authority-bearing operation. Only trusted operator or control-plane code should receive access to the approval store's mutation methods. Do not expose an `InMemoryToolApprovalStore` instance, its `approve()` method, or an equivalent durable store writer to an untrusted agent or tool.
+
+`InMemoryToolApprovalStore` is permanently scoped to one `runtimeId` at construction. That namespace is copied into every approval record. `ToolApprovalPolicy` supplies the live `RuntimeContext.runtimeId` on every protected consumption attempt, so reusing one store from a different runtime fails closed without consuming the grant.
 
 Approval records retain the payload digest, not a copy of the payload. They therefore provide invocation binding without turning the approval ledger into a second payload store.
 
@@ -30,7 +33,9 @@ import {
   createPaymentPrepTool
 } from "@lily-protocol/agentlily-runtime";
 
-const approvals = new InMemoryToolApprovalStore();
+const approvals = new InMemoryToolApprovalStore({
+  runtimeId: "treasury-runtime"
+});
 const toolPolicy = new ToolApprovalPolicy({
   approvalStore: approvals,
   protectedTools: ["wallet.prepare_payment"],
@@ -69,14 +74,16 @@ const result = await runtime.executeTask({
 });
 ```
 
-The first matching invocation consumes the approval. A retry using the same task, agent, tool, and payload requires a new explicit approval. Issuing multiple matching grants intentionally authorizes the same number of matching one-time invocations.
+The first matching invocation in the configured runtime consumes the approval. A retry using the same runtime, task, agent, tool, and payload requires a new explicit approval. Issuing multiple matching grants intentionally authorizes the same number of matching one-time invocations.
+
+A store created for `treasury-runtime` must not be treated as approval authority for another runtime. If the same store is accidentally wired into a different runtime's policy, protected calls are denied and the original approval remains unspent.
 
 ## Composition with ordinary tool policy
 
 When `basePolicy` is configured, it is evaluated first. Both authorities must allow a protected invocation:
 
 1. the base policy must allow the tool call;
-2. a current matching human approval must exist.
+2. a current matching human approval must exist for the live runtime.
 
 A base-policy denial does **not** consume an approval. If the base policy throws, the exception reaches the existing `ActionExecutor` policy boundary, which fails closed and emits the ordinary sanitized policy-denial behavior.
 
@@ -122,9 +129,9 @@ Normalize application-specific payloads into plain data before requesting approv
 
 ## Durability and concurrency
 
-`InMemoryToolApprovalStore` provides atomic one-time consumption inside one JavaScript process. It intentionally does **not** claim restart durability or cross-process atomicity.
+`InMemoryToolApprovalStore` provides atomic one-time consumption inside one JavaScript process and binds that authority to one runtime namespace. It intentionally does **not** claim restart durability or cross-process atomicity.
 
-Production systems that need durable or distributed approval authority should implement `ToolApprovalStore` with storage that provides atomic compare-and-consume semantics. The policy consumes through that interface, so the execution boundary does not need to change when the backing authority becomes durable.
+Production systems that need durable or distributed approval authority should implement `ToolApprovalStore` with storage that provides atomic compare-and-consume semantics. `ToolApprovalConsumeRequest.runtimeId` is required on that interface; a durable implementation must persist and compare runtime identity with the same authority as task, agent, tool, and payload identity. The policy consumes through that interface, so the execution boundary does not need to change when the backing authority becomes durable.
 
 ## What this does not authorize
 

@@ -21,7 +21,10 @@ describe("tool approval payload aliasing", () => {
 
   it("fails closed when the approval authority cannot establish current time", () => {
     let now = new Date("2026-09-13T10:00:00.000Z");
-    const store = new InMemoryToolApprovalStore({ now: () => now });
+    const store = new InMemoryToolApprovalStore({
+      runtimeId: "approval-test-runtime",
+      now: () => now
+    });
     const payload = { amount: "1" };
 
     store.approve({
