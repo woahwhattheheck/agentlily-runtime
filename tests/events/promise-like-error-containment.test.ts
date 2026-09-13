@@ -1,0 +1,73 @@
+import { describe, expect, it, vi } from "vitest";
+import { RuntimeEventBus } from "../../src/events/runtime-events.js";
+
+function startedEvent(runtimeId: string) {
+  return {
+    name: "runtime.started" as const,
+    payload: { runtimeId, occurredAt: new Date().toISOString() }
+  };
+}
+
+function rejectedThenable(message: string) {
+  return {
+    then(_resolve: (value?: unknown) => void, reject: (reason: unknown) => void) {
+      reject(new Error(message));
+    }
+  };
+}
+
+async function flushPromiseLikeRejections(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("RuntimeEventBus PromiseLike error containment", () => {
+  it("routes rejected thenable listeners through the normal error path", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const observer = vi.fn();
+    const bus = new RuntimeEventBus({ onListenerError: observer });
+    const internalErrors: string[] = [];
+
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => rejectedThenable("thenable listener boom"));
+
+    bus.emit(startedEvent("rt-listener-thenable"));
+    await flushPromiseLikeRejections();
+
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "thenable listener boom" })
+    );
+    expect(internalErrors).toEqual(["thenable listener boom"]);
+
+    errorSpy.mockRestore();
+  });
+
+  it("contains rejected thenables returned by onListenerError", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const observer = vi.fn(() => rejectedThenable("thenable observer boom"));
+    const bus = new RuntimeEventBus({ onListenerError: observer });
+    const internalErrors: string[] = [];
+
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => {
+      throw new Error("listener boom");
+    });
+
+    expect(() => bus.emit(startedEvent("rt-observer-thenable"))).not.toThrow();
+    await flushPromiseLikeRejections();
+
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(internalErrors).toEqual(["listener boom"]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[RuntimeEventBus] onListenerError handler failed:",
+      expect.objectContaining({ message: "thenable observer boom" })
+    );
+
+    errorSpy.mockRestore();
+  });
+});
