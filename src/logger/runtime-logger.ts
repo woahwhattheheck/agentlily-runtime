@@ -15,6 +15,20 @@ const LOG_LEVEL_PRIORITY: Record<RuntimeLogLevel, number> = {
   error: 3
 };
 
+function resolveLogLevel(
+  value: unknown,
+  fallback: RuntimeLogLevel
+): RuntimeLogLevel {
+  const level = value === undefined ? fallback : value;
+  if (
+    typeof level !== "string" ||
+    !Object.prototype.hasOwnProperty.call(LOG_LEVEL_PRIORITY, level)
+  ) {
+    throw new RangeError("level must be one of: debug, info, warn, error.");
+  }
+  return level as RuntimeLogLevel;
+}
+
 function shouldLog(
   level: RuntimeLogLevel,
   minimumLevel: RuntimeLogLevel
@@ -152,7 +166,7 @@ export class ConsoleRuntimeLogger implements RuntimeLogger {
   private readonly redactKeys: RegExp;
 
   public constructor(options: ConsoleRuntimeLoggerOptions = {}) {
-    this.level = options.level ?? "info";
+    this.level = resolveLogLevel(options.level, "info");
     this.redactKeys = options.redactKeys ?? DEFAULT_REDACT_KEYS;
   }
 
@@ -243,7 +257,7 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
     }
 
     this.maxEntries = maxEntries;
-    this.level = options.level ?? "debug";
+    this.level = resolveLogLevel(options.level, "debug");
     this.minimumLevel = this.level;
     this.redactKeys = options.redactKeys ?? DEFAULT_REDACT_KEYS;
   }
