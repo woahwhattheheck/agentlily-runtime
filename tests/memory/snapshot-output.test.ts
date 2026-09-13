@@ -78,4 +78,34 @@ describe("InMemoryMemoryStore point-in-time output snapshots", () => {
     expect(store.size).toBe(0);
     expect(await store.listByAgent("agent-3")).toEqual([]);
   });
+
+  it("rejects top-level function objects instead of retaining a mutable function alias", async () => {
+    const store = new InMemoryMemoryStore();
+    await store.append({
+      agentId: "control-agent",
+      taskId: "control-task",
+      input: "keep existing history",
+      output: { status: "safe" },
+      recordedAt: new Date().toISOString()
+    });
+
+    const functionOutput = Object.assign(() => "ok", { status: "pending" });
+
+    await expect(
+      store.append({
+        agentId: "agent-4",
+        taskId: "task-4",
+        input: "retain function snapshot",
+        output: functionOutput,
+        recordedAt: new Date().toISOString()
+      })
+    ).rejects.toThrow("Memory output must be defensively cloneable.");
+
+    functionOutput.status = "mutated-after-rejection";
+    expect(store.size).toBe(1);
+    expect(await store.listByAgent("agent-4")).toEqual([]);
+    expect(await store.listByAgent("control-agent")).toMatchObject([
+      { output: { status: "safe" } }
+    ]);
+  });
 });
