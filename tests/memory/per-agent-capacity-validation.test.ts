@@ -25,9 +25,7 @@ describe("InMemoryMemoryStore maxEntriesPerAgent validation", () => {
     expect(
       () => new InMemoryMemoryStore({ maxEntriesPerAgent })
     ).toThrow(
-      new RangeError(
-        "maxEntriesPerAgent must be a non-negative integer."
-      )
+      new RangeError("maxEntriesPerAgent must be a non-negative integer.")
     );
   });
 
@@ -48,11 +46,9 @@ describe("InMemoryMemoryStore maxEntriesPerAgent validation", () => {
     await store.append(entry("agent-a", "task-2"));
     await store.append(entry("agent-a", "task-3"));
 
-    expect((await store.listByAgent("agent-a")).map((item) => item.taskId)).toEqual([
-      "task-1",
-      "task-2",
-      "task-3"
-    ]);
+    expect(
+      (await store.listByAgent("agent-a")).map((item) => item.taskId)
+    ).toEqual(["task-1", "task-2", "task-3"]);
   });
 
   it("continues to evict the oldest entry for a bounded agent", async () => {
@@ -66,12 +62,11 @@ describe("InMemoryMemoryStore maxEntriesPerAgent validation", () => {
     await store.append(entry("agent-a", "task-2"));
     await store.append(entry("agent-a", "task-3"));
 
-    expect((await store.listByAgent("agent-a")).map((item) => item.taskId)).toEqual([
-      "task-2",
-      "task-3"
-    ]);
-    expect((await store.listByAgent("agent-b")).map((item) => item.taskId)).toEqual([
-      "task-b"
-    ]);
+    expect(
+      (await store.listByAgent("agent-a")).map((item) => item.taskId)
+    ).toEqual(["task-2", "task-3"]);
+    expect(
+      (await store.listByAgent("agent-b")).map((item) => item.taskId)
+    ).toEqual(["task-b"]);
   });
 });
