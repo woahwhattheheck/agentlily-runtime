@@ -11,7 +11,8 @@ function startedEvent(runtimeId: string) {
 
 function rejectedThenable(message: string) {
   return {
-    then(_resolve: (value?: unknown) => void, reject: (reason: unknown) => void) {
+    then(resolve: (value?: unknown) => void, reject: (reason: unknown) => void) {
+      void resolve;
       reject(new Error(message));
     }
   };
@@ -105,7 +106,7 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
         getPrototypeOf() {
           throw new Error("prototype trap");
         },
-        get(_target, property) {
+        get(target, property, receiver) {
           if (
             property === "message" ||
             property === "toString" ||
@@ -113,7 +114,7 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
           ) {
             throw new Error("getter trap");
           }
-          return undefined;
+          return Reflect.get(target, property, receiver);
         }
       }
     );
