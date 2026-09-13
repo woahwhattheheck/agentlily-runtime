@@ -106,6 +106,37 @@ describe("PaymentPrepAction", () => {
     ).toThrowError(RuntimeError);
   });
 
+  it("rejects non-string/non-number runtime amount types without coercion", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-pay-runtime-types");
+    let toStringCalled = false;
+    const coercibleObject = {
+      toString() {
+        toStringCalled = true;
+        return "10";
+      }
+    };
+
+    for (const amount of [true, [1], coercibleObject]) {
+      expect(() =>
+        tool.execute({
+          payload: {
+            walletId: "GWALLET123",
+            amount: amount as unknown as PaymentPrepPayload["amount"]
+          },
+          context
+        })
+      ).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_TASK",
+          details: { fieldName: "amount" }
+        })
+      );
+    }
+
+    expect(toStringCalled).toBe(false);
+  });
+
   it("rejects negative or invalid numeric amount", async () => {
     const tool = createPaymentPrepTool();
     const context = createMockContext("task-pay-5");

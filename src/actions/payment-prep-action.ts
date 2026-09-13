@@ -40,23 +40,32 @@ export function createPaymentPrepTool(): ToolDefinition<
     }: ToolInvocation<PaymentPrepPayload>): PaymentPrepResult {
       assertNonEmptyValue(payload.walletId, "walletId");
 
+      const amount = payload.amount as unknown;
       if (
-        payload.amount === undefined ||
-        payload.amount === null ||
-        String(payload.amount).trim().length === 0
+        amount === undefined ||
+        amount === null ||
+        (typeof amount === "string" && amount.trim().length === 0)
       ) {
         throw new RuntimeError("INVALID_TASK", "amount must be specified.", {
           fieldName: "amount"
         });
       }
 
-      const amountStr = String(payload.amount);
+      if (typeof amount !== "string" && typeof amount !== "number") {
+        throw new RuntimeError(
+          "INVALID_TASK",
+          "amount must be a string or number.",
+          { fieldName: "amount" }
+        );
+      }
+
+      const amountStr = String(amount);
       const parsedAmount = Number(amountStr);
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
         throw new RuntimeError(
           "INVALID_TASK",
           "amount must be a positive finite number.",
-          { amount: payload.amount }
+          { amount }
         );
       }
 
