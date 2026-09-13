@@ -120,6 +120,28 @@ describe("PaymentPrepAction", () => {
     );
   });
 
+  it("refuses an issuer on native XLM", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-native-no-issuer");
+
+    expect(() =>
+      tool.execute({
+        payload: {
+          walletId: "GWALLET123",
+          amount: "10",
+          assetCode: "XLM",
+          assetIssuer: "GISSUER1"
+        },
+        context
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_TASK",
+        details: { fieldName: "assetIssuer", assetCode: "XLM" }
+      })
+    );
+  });
+
   it("treats equal asset codes from different issuers as different intents", () => {
     const tool = createPaymentPrepTool();
     const context = createMockContext("task-issued-identity");
