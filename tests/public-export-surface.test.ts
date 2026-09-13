@@ -11,6 +11,7 @@ describe("Public export surface of src/index.ts", () => {
     "InMemoryRuntimeLogger",
     "InMemoryMemoryStore",
     "InMemoryToolApprovalStore",
+    "JsonFileToolApprovalStore",
     "ToolApprovalPolicy",
     "UnconfiguredModelProvider",
     "InMemoryRuntimeStateStore",
