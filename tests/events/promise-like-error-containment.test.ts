@@ -159,4 +159,54 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
 
     errorSpy.mockRestore();
   });
+
+  it(
+    "contains native console inspection failures from hostile listener values",
+    () => {
+      const bus = new RuntimeEventBus();
+      const internalErrors: string[] = [];
+      const inspect = Symbol.for("nodejs.util.inspect.custom");
+      const hostile = {
+        message: "hostile listener boom",
+        [inspect]() {
+          throw new Error("inspect trap");
+        }
+      };
+
+      bus.on("runtime.internal.error", (event) => {
+        internalErrors.push(event.payload.errorMessage);
+      });
+      bus.on("runtime.started", () => {
+        throw hostile;
+      });
+
+      expect(() => bus.emit(startedEvent("rt-hostile-inspect"))).not.toThrow();
+      expect(internalErrors).toEqual(["hostile listener boom"]);
+    }
+  );
+
+  it("normalizes a non-string same-realm Error.message to the fallback", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bus = new RuntimeEventBus();
+    const internalErrors: string[] = [];
+    const hostileError = new Error("initial message");
+
+    Object.defineProperty(hostileError, "message", {
+      get() {
+        return { forged: true };
+      }
+    });
+
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => {
+      throw hostileError;
+    });
+
+    expect(() => bus.emit(startedEvent("rt-non-string-error"))).not.toThrow();
+    expect(internalErrors).toEqual(["Unknown listener failure."]);
+
+    errorSpy.mockRestore();
+  });
 });

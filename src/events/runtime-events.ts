@@ -93,6 +93,14 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
+function logListenerFailure(message: string, error: unknown): void {
+  try {
+    console.error(message, error);
+  } catch {
+    // Diagnostics must never let a hostile formatter escape error containment.
+  }
+}
+
 function listenerErrorMessage(error: unknown): string {
   if (
     error !== null &&
@@ -100,7 +108,10 @@ function listenerErrorMessage(error: unknown): string {
   ) {
     try {
       if (error instanceof Error) {
-        return error.message;
+        const message = error.message;
+        return typeof message === "string"
+          ? message
+          : "Unknown listener failure.";
       }
 
       const message = (error as { message?: unknown }).message;
@@ -261,7 +272,7 @@ export class RuntimeEventBus {
     eventName: RuntimeEventName,
     error: unknown
   ): void {
-    console.error(
+    logListenerFailure(
       `[RuntimeEventBus] Listener error during "${eventName}" (listener error):`,
       error
     );
@@ -296,14 +307,14 @@ export class RuntimeEventBus {
       const result = this.onListenerError(error) as unknown;
       if (isPromiseLike(result)) {
         Promise.resolve(result).catch((observerError: unknown) => {
-          console.error(
+          logListenerFailure(
             "[RuntimeEventBus] onListenerError handler failed:",
             observerError
           );
         });
       }
     } catch (observerError) {
-      console.error(
+      logListenerFailure(
         "[RuntimeEventBus] onListenerError handler failed:",
         observerError
       );
