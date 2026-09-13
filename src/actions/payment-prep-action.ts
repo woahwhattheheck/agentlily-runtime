@@ -3,6 +3,7 @@ import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { ToolDefinition, ToolInvocation } from "../tools/types.js";
 
 const STROOPS_PER_UNIT = 10_000_000n;
+const STROOPS_PER_UNIT_NUMBER = 10_000_000;
 const MAX_STELLAR_AMOUNT_STROOPS = 9_223_372_036_854_775_807n;
 const DECIMAL_AMOUNT_RE = /^\d+(?:\.\d{1,7})?$/;
 
@@ -40,6 +41,18 @@ function invalidAmount(amount: unknown): never {
 
 function normalizeNumericAmount(amount: number): string {
   if (!Number.isFinite(amount) || amount <= 0) {
+    return invalidAmount(amount);
+  }
+
+  // Fractional JSON numbers are only safe for payment preparation while their
+  // exact Number value still resolves to an integer number of stroops. At high
+  // magnitudes IEEE-754 spacing exceeds Stellar's 1e-7 unit, so String(amount)
+  // can otherwise silently prepare a rounded value. Exact high-value amounts
+  // remain available through the string input form.
+  if (
+    !Number.isInteger(amount) &&
+    !Number.isSafeInteger(amount * STROOPS_PER_UNIT_NUMBER)
+  ) {
     return invalidAmount(amount);
   }
 
