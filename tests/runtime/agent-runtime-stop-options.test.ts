@@ -119,6 +119,45 @@ describe("AgentRuntime.stop with RuntimeStopOptions (#233)", () => {
     expect(runtime.getInFlightTaskCount()).toBe(0);
   });
 
+  it("rejects malformed drainTimeoutMs before mutating runtime lifecycle", async () => {
+    const runtime = new AgentRuntime({
+      runtimeId: "rt-invalid-drain-timeout",
+      logger: {
+        level: "error",
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn()
+      }
+    });
+
+    const stoppedListener = vi.fn();
+    runtime.getDependencies().eventBus.on("runtime.stopped", stoppedListener);
+    await runtime.start();
+
+    const invalidValues: unknown[] = [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      "10",
+      true
+    ];
+
+    for (const drainTimeoutMs of invalidValues) {
+      await expect(
+        runtime.stop({ drainTimeoutMs: drainTimeoutMs as number })
+      ).rejects.toThrow("drainTimeoutMs must be a non-negative integer.");
+      expect(runtime.isRunning()).toBe(true);
+      expect(stoppedListener).not.toHaveBeenCalled();
+    }
+
+    await runtime.stop({ drainTimeoutMs: 0 });
+    expect(runtime.isRunning()).toBe(false);
+    expect(stoppedListener).toHaveBeenCalledTimes(1);
+  });
+
   it("emits runtime.stopped only once across multiple stop calls with options", async () => {
     const runtime = new AgentRuntime({
       runtimeId: "rt-multi-stop",
