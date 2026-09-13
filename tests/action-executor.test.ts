@@ -109,6 +109,41 @@ describe("ActionExecutor", () => {
     expect(executor.getToolCallCount("task-2")).toBe(2);
   });
 
+  it("rejects invalid maxToolCallsPerTask values", () => {
+    for (const value of [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY
+    ]) {
+      expect(() => new ActionExecutor(new ToolRegistry(), value)).toThrow(
+        "maxToolCallsPerTask must be a non-negative integer."
+      );
+    }
+  });
+
+  it("treats a zero maxToolCallsPerTask as a zero-call budget", async () => {
+    const registry = new ToolRegistry();
+    const execute = vi.fn(() => "pong");
+    registry.register({
+      name: "ping",
+      description: "Ping tool",
+      execute
+    });
+
+    const executor = new ActionExecutor(registry, 0);
+    const ctx = createMockContext("task-zero-budget");
+
+    await expect(executor.execute("ping", {}, ctx)).rejects.toMatchObject({
+      name: "RuntimeError",
+      code: "MAX_TOOL_CALLS_EXCEEDED",
+      details: { currentToolCalls: 0, maxToolCalls: 0 }
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(executor.getToolCallCount(ctx.taskId)).toBe(0);
+  });
+
   // NEW TESTS FOR THE FIX
   it("does not increment tool call count for unknown tool", async () => {
     const registry = new ToolRegistry();
