@@ -89,14 +89,22 @@ export class AgentRuntime {
       return;
     }
 
+    const drainTimeoutMs = options.drainTimeoutMs;
+    if (
+      drainTimeoutMs !== undefined &&
+      (!Number.isInteger(drainTimeoutMs) || drainTimeoutMs < 0)
+    ) {
+      throw new RangeError("drainTimeoutMs must be a non-negative integer.");
+    }
+
     this.stopped = true;
     this.started = false;
 
     const drainStartMs = Date.now();
     let strandedTaskIds: string[] = [];
 
-    if (options.drainTimeoutMs !== undefined && options.drainTimeoutMs > 0) {
-      await this.awaitInFlightTasks(options.drainTimeoutMs);
+    if (drainTimeoutMs !== undefined && drainTimeoutMs > 0) {
+      await this.awaitInFlightTasks(drainTimeoutMs);
 
       if (this.inFlightTasks.size > 0) {
         strandedTaskIds = Array.from(this.inFlightTasks);
@@ -119,7 +127,7 @@ export class AgentRuntime {
           strandedTasks: strandedTaskIds,
           inFlightTasks: strandedTaskIds,
           inFlightTaskCount: strandedTaskIds.length,
-          drainTimeoutMs: options.drainTimeoutMs,
+          drainTimeoutMs,
           elapsedDrainMs: drainDurationMs,
           drainDurationMs
         }
