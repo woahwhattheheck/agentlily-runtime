@@ -16,6 +16,8 @@ export interface RuntimeOptions {
    */
   maxAgentInstances?: number;
   maxToolCallsPerTask?: number;
+  /** Maximum number of per-task tool-call counters retained by the executor. */
+  maxTrackedTasks?: number;
   /** Maximum wall-clock duration for one task execution before rejection. */
   maxTaskDurationMs?: number;
   memoryStore?: MemoryStore;
