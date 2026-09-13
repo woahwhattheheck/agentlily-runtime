@@ -109,8 +109,10 @@ export class AgentRuntime {
     const drainStartMs = Date.now();
     let strandedTaskIds: string[] = [];
 
-    if (drainTimeoutMs !== undefined && drainTimeoutMs > 0) {
-      await this.awaitInFlightTasks(drainTimeoutMs);
+    if (drainTimeoutMs !== undefined) {
+      if (drainTimeoutMs > 0) {
+        await this.awaitInFlightTasks(drainTimeoutMs);
+      }
 
       if (this.inFlightTasks.size > 0) {
         strandedTaskIds = Array.from(this.inFlightTasks);
