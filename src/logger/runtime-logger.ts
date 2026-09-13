@@ -206,7 +206,9 @@ export class ConsoleRuntimeLogger implements RuntimeLogger {
     metadata?: Record<string, unknown>
   ): Record<string, unknown> {
     const redacted = redactValue(metadata ?? {}, this.redactKeys);
-    return redacted !== null && typeof redacted === "object" && !Array.isArray(redacted)
+    return redacted !== null &&
+      typeof redacted === "object" &&
+      !Array.isArray(redacted)
       ? (redacted as Record<string, unknown>)
       : { metadata: redacted };
   }
