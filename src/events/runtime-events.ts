@@ -192,6 +192,8 @@ export class RuntimeEventBus {
       return;
     }
 
+    // Snapshot so listeners added during dispatch do not fire on this emit,
+    // while still honoring removals that happen mid-dispatch.
     const snapshot = Array.from(listenerSet);
 
     for (const listener of snapshot) {
