@@ -40,6 +40,9 @@ export class ActionExecutor {
     let resolvedMaxTrackedTasks = maxTrackedTasks;
 
     if (typeof maxToolCallsPerTaskOrLogger === "number") {
+      if (!Number.isInteger(maxToolCallsPerTaskOrLogger)) {
+        throw new RangeError("maxToolCallsPerTask must be an integer.");
+      }
       this.maxToolCallsPerTask = maxToolCallsPerTaskOrLogger;
     } else {
       this.maxToolCallsPerTask = undefined;
