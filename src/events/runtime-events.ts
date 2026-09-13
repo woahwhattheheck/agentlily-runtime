@@ -75,6 +75,7 @@ export class RuntimeEventListenerLimitError extends Error {
 }
 
 type Listener = RuntimeEventListener<RuntimeEventName>;
+type OnceListener = Listener & { originalListener?: Listener };
 
 export class RuntimeEventBus {
   private readonly listeners = new Map<RuntimeEventName, Set<Listener>>();
@@ -129,12 +130,14 @@ export class RuntimeEventBus {
     eventName: TName,
     listener: RuntimeEventListener<TName>
   ): () => void {
-    const wrapped: RuntimeEventListener<TName> = (event) => {
-      this.off(eventName, wrapped);
-      return listener(event);
-    };
-    this.on(eventName, wrapped);
-    return () => this.off(eventName, wrapped);
+    const wrapped: OnceListener = ((event: RuntimeEvent<RuntimeEventName>) => {
+      this.off(eventName, wrapped as RuntimeEventListener<TName>);
+      return (listener as RuntimeEventListener<RuntimeEventName>)(event);
+    }) as OnceListener;
+    wrapped.originalListener = listener as Listener;
+
+    this.on(eventName, wrapped as RuntimeEventListener<TName>);
+    return () => this.off(eventName, wrapped as RuntimeEventListener<TName>);
   }
 
   public off<TName extends RuntimeEventName>(
@@ -150,10 +153,7 @@ export class RuntimeEventBus {
       return true;
     }
     for (const item of listenerSet) {
-      if (
-        (item as unknown as { originalListener?: Listener }).originalListener ===
-        target
-      ) {
+      if ((item as OnceListener).originalListener === target) {
         listenerSet.delete(item);
         return true;
       }
