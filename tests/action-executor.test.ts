@@ -109,6 +109,14 @@ describe("ActionExecutor", () => {
     expect(executor.getToolCallCount("task-2")).toBe(2);
   });
 
+  it("rejects negative maxToolCallsPerTask limits", () => {
+    const registry = new ToolRegistry();
+
+    expect(() => new ActionExecutor(registry, -1)).toThrow(
+      "maxToolCallsPerTask must be a non-negative integer."
+    );
+  });
+
   // NEW TESTS FOR THE FIX
   it("does not increment tool call count for unknown tool", async () => {
     const registry = new ToolRegistry();
