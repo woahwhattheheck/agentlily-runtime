@@ -13,7 +13,7 @@ Changing any bound field invalidates the grant. A matching approval is consumed 
 
 ## Trust boundary
 
-`approve()` is an authority-bearing operation. Only trusted operator or control-plane code should receive access to the approval store's mutation methods. Do not expose an `InMemoryToolApprovalStore` instance, its `approve()` method, or an equivalent durable store writer to an untrusted agent or tool.
+`approve()` is an authority-bearing operation. Only trusted operator or control-plane code should receive access to the approval store's mutation methods. Do not expose an `InMemoryToolApprovalStore`, `JsonFileToolApprovalStore`, their `approve()` methods, or an equivalent durable store writer to an untrusted agent or tool.
 
 Approval records retain the payload digest, not a copy of the payload. They therefore provide invocation binding without turning the approval ledger into a second payload store.
 
@@ -124,7 +124,30 @@ Normalize application-specific payloads into plain data before requesting approv
 
 `InMemoryToolApprovalStore` provides atomic one-time consumption inside one JavaScript process. It intentionally does **not** claim restart durability or cross-process atomicity.
 
-Production systems that need durable or distributed approval authority should implement `ToolApprovalStore` with storage that provides atomic compare-and-consume semantics. The policy consumes through that interface, so the execution boundary does not need to change when the backing authority becomes durable.
+For multiple Node.js processes on one host that share a filesystem, use `JsonFileToolApprovalStore`:
+
+```ts
+import {
+  JsonFileToolApprovalStore,
+  ToolApprovalPolicy
+} from "@lily-protocol/agentlily-runtime";
+
+const approvals = new JsonFileToolApprovalStore(
+  "./data/tool-approvals.json"
+);
+const toolPolicy = new ToolApprovalPolicy({
+  approvalStore: approvals,
+  protectedTools: ["wallet.prepare_payment"]
+});
+```
+
+The file-backed store uses an adjacent `<approval-file>.lock` directory as an atomic create-if-absent critical section. Grant, revoke, read, list, and consume operations all participate in that protocol, and a successful consume is written before it resolves. Two participating processes racing the same one-time grant therefore cannot both consume it.
+
+The approval file is replaced atomically and validates its version, record fields, canonical timestamps, approval-ID uniqueness, digest shape, and consumed/revoked invariants before use. Invalid JSON or invalid authority state fails closed with `STORAGE_CORRUPTED` rather than being silently repaired or overwritten.
+
+A process crash can leave the adjacent lock directory behind. That intentionally fails closed with `STORAGE_LOCKED`; a later process cannot safely prove that a lock is stale. Before manually removing an orphaned lock, verify that no process still uses the approval file and reconcile whether an authority-changing operation may have completed. Every process sharing one approval file must participate in the same lock protocol; do not mix a non-locking writer with `JsonFileToolApprovalStore`.
+
+The JSON store provides restart persistence and same-filesystem process serialization, not a distributed consensus or tamper-resistant ledger. Filesystem access remains part of the trusted control plane. Multi-host deployments should implement `ToolApprovalStore` on a database or service that provides an atomic compare-and-consume transaction.
 
 ## What this does not authorize
 
