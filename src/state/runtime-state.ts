@@ -17,7 +17,11 @@ export class InMemoryRuntimeStateStore implements RuntimeStateStore {
   private readonly maxEntries: number;
 
   public constructor(options: InMemoryRuntimeStateStoreOptions = {}) {
-    this.maxEntries = options.maxEntries ?? 10_000;
+    const maxEntries = options.maxEntries ?? 10_000;
+    if (!Number.isInteger(maxEntries) || maxEntries < 0) {
+      throw new RangeError("maxEntries must be a non-negative integer.");
+    }
+    this.maxEntries = maxEntries;
   }
 
   public async put(key: string, value: unknown): Promise<void> {
