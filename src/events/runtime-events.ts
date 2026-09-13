@@ -269,8 +269,8 @@ export class RuntimeEventBus {
 
     try {
       const result = this.onListenerError(error) as unknown;
-      if (result instanceof Promise) {
-        result.catch((observerError: unknown) => {
+      if (isPromiseLike(result)) {
+        Promise.resolve(result).catch((observerError: unknown) => {
           console.error(
             "[RuntimeEventBus] onListenerError handler failed:",
             observerError
