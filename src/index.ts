@@ -36,6 +36,10 @@ export { ToolAllowlistPolicy } from "./policies/tool-policy.js";
 export { UnconfiguredModelProvider } from "./providers/model-provider.js";
 export { OpenAICompatibleModelProvider } from "./providers/openai-compatible-provider.js";
 export { InMemoryRuntimeStateStore } from "./state/runtime-state.js";
+export {
+  InMemoryTaskOutcomeStore,
+  JsonFileTaskOutcomeStore
+} from "./tasks/task-outcome-store.js";
 export { TaskRunner } from "./tasks/task-runner.js";
 export { ToolRegistry } from "./tools/tool-registry.js";
 export {
@@ -81,5 +85,12 @@ export type {
 } from "./providers/model-provider.js";
 export type { OpenAICompatibleProviderOptions } from "./providers/openai-compatible-provider.js";
 export type { RuntimeStateStore } from "./state/runtime-state.js";
+export type {
+  BeginTaskOutcomeResult,
+  JsonFileTaskOutcomeStoreOptions,
+  TaskOutcomeRecord,
+  TaskOutcomeState,
+  TaskOutcomeStore
+} from "./tasks/task-outcome-store.js";
 export type { RuntimeTask, TaskExecutionResult } from "./tasks/task-types.js";
 export type { ToolDefinition, ToolInvocation } from "./tools/types.js";
