@@ -17,6 +17,15 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     throw new TypeError("runtimeId must be a non-empty string.");
   }
 
+  if (
+    options.memoryStore === undefined &&
+    options.memoryStoragePath !== undefined &&
+    (typeof options.memoryStoragePath !== "string" ||
+      options.memoryStoragePath.trim().length === 0)
+  ) {
+    throw new TypeError("memoryStoragePath must be a non-empty string.");
+  }
+
   const toolRegistry = new ToolRegistry();
   if (options.tools !== undefined) {
     for (const tool of options.tools) {
@@ -26,7 +35,7 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
 
   const memoryStore =
     options.memoryStore ??
-    (options.memoryStoragePath
+    (options.memoryStoragePath !== undefined
       ? new JsonFileMemoryStore(options.memoryStoragePath)
       : new InMemoryMemoryStore());
   const logger = options.logger ?? new ConsoleRuntimeLogger();
