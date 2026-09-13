@@ -124,6 +124,15 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     }
 
     if (
+      options.model !== undefined &&
+      (typeof options.model !== "string" || options.model.trim().length === 0)
+    ) {
+      throw new Error(
+        "OpenAI-compatible provider model must be a non-empty string."
+      );
+    }
+
+    if (
       options.timeoutMs !== undefined &&
       (typeof options.timeoutMs !== "number" ||
         !Number.isInteger(options.timeoutMs) ||
@@ -145,7 +154,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
 
     this.apiKey = options.apiKey.trim();
     this.baseUrl = `${baseUrlPath.replace(/\/+$/, "")}${baseUrlQuery}`;
-    this.model = options.model?.trim() || "gpt-4o-mini";
+    this.model = options.model?.trim() ?? "gpt-4o-mini";
     this.timeoutMs = options.timeoutMs;
     this.customHeaders = copyCustomHeaders(options.headers);
   }
