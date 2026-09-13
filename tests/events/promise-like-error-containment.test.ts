@@ -94,4 +94,37 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
 
     errorSpy.mockRestore();
   });
+
+  it("falls back safely when a thrown value has hostile message accessors", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bus = new RuntimeEventBus();
+    const internalErrors: string[] = [];
+    const hostile = new Proxy(
+      {},
+      {
+        get(_target, property) {
+          if (
+            property === "message" ||
+            property === "toString" ||
+            property === Symbol.toPrimitive
+          ) {
+            throw new Error("getter trap");
+          }
+          return undefined;
+        }
+      }
+    );
+
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => {
+      throw hostile;
+    });
+
+    expect(() => bus.emit(startedEvent("rt-hostile-error"))).not.toThrow();
+    expect(internalErrors).toEqual(["Unknown listener failure."]);
+
+    errorSpy.mockRestore();
+  });
 });
