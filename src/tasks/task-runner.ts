@@ -76,7 +76,7 @@ export class TaskRunner {
     if (this.unknownOutcomeTaskIds.has(task.taskId)) {
       throw new RuntimeError(
         "TASK_OUTCOME_UNKNOWN",
-        `Task "${task.taskId}" previously timed out, so its side-effect outcome is unknown and the task ID cannot be retried safely.`,
+        `Task "${task.taskId}" cannot be retried safely because its durable outcome is unknown after a previous execution.`,
         { taskId: task.taskId }
       );
     }
@@ -105,6 +105,12 @@ export class TaskRunner {
         recordedAt: completedAt
       });
     } catch (error) {
+      // The tool already resolved successfully before persistence began. Its
+      // side effect may therefore be complete even though no durable task result
+      // exists. Retire this logical task ID so a retry cannot execute that side
+      // effect a second time under a false-failure response.
+      this.unknownOutcomeTaskIds.add(task.taskId);
+
       // Persistence failures are runtime execution failures even when the
       // underlying store happens to throw a typed RuntimeError of its own.
       throw new RuntimeError(
