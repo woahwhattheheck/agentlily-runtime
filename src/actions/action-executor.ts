@@ -119,10 +119,15 @@ export class ActionExecutor {
     const result = (await tool.execute({ payload, context })) as TResult;
     const durationMs = Math.max(0, Date.now() - startedAt);
 
-    this.logger?.info("Tool invocation completed.", {
-      toolName,
-      durationMs
-    });
+    try {
+      this.logger?.info("Tool invocation completed.", {
+        toolName,
+        durationMs
+      });
+    } catch {
+      // Logging is observational. A logger failure after the tool has already
+      // completed must not turn that successful side effect into a failed call.
+    }
 
     return result;
   }
