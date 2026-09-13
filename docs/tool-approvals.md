@@ -46,7 +46,6 @@ await runtime.start();
 
 const payload = {
   walletId: "wallet_treasury",
-  recipient: "GDESTINATION...",
   amount: "25.00",
   assetCode: "XLM",
   memo: "reviewed payment preparation"
