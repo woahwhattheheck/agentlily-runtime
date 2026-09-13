@@ -86,8 +86,12 @@ describe("tool approval authority", () => {
     expect(() => digestToolApprovalPayload(getterPayload)).toThrow(
       /data properties/i
     );
-    expect(() => digestToolApprovalPayload(new Date())).toThrow(/plain objects/i);
-    expect(() => digestToolApprovalPayload(symbolPayload)).toThrow(/symbol keys/i);
+    expect(() => digestToolApprovalPayload(new Date())).toThrow(
+      /plain objects/i
+    );
+    expect(() => digestToolApprovalPayload(symbolPayload)).toThrow(
+      /symbol keys/i
+    );
     expect(() => digestToolApprovalPayload(sparse)).toThrow(/holes/i);
     expect(() => digestToolApprovalPayload(Number.NaN)).toThrow(/finite/i);
     expect(() => digestToolApprovalPayload(Number.POSITIVE_INFINITY)).toThrow(
@@ -409,7 +413,7 @@ describe("tool approval authority", () => {
 
     store.approve({
       taskId: context.taskId,
-      agentId: context.agent.agentId ?? context.agent.id ?? "",
+      agentId: context.agent.agentId,
       toolName: "wallet.execute",
       payload: { amount: "1" }
     });
