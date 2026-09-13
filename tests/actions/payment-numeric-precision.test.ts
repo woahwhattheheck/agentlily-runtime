@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createPaymentPrepTool,
-  type PaymentPrepPayload
+  type PaymentPrepPayload,
+  type PaymentPrepResult
 } from "../../src/actions/payment-prep-action.js";
 import type { RuntimeContext } from "../../src/runtime/context.js";
 
@@ -10,11 +11,11 @@ const context = {
   now: "2026-09-13T04:35:00.000Z"
 } as unknown as RuntimeContext;
 
-function prepare(amount: PaymentPrepPayload["amount"]) {
+function prepare(amount: PaymentPrepPayload["amount"]): PaymentPrepResult {
   return createPaymentPrepTool().execute({
     payload: { walletId: "GWALLET123", amount },
     context
-  });
+  }) as PaymentPrepResult;
 }
 
 describe("payment preparation numeric stroop precision", () => {
