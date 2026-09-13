@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 import {
   AgentInstanceManager,
@@ -38,6 +40,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
       assetCode: "USDC",
+      assetIssuer: "GISSUERUSDC1",
       memo: "Invoice #1024",
       metadata: { priority: "high" }
     };
@@ -50,6 +53,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: payload.recipientId,
       assetCode: "USDC",
+      assetIssuer: "GISSUERUSDC1",
       memo: "Invoice #1024",
       preparedAt: "2026-08-30T12:00:00.000Z",
       transactionStubId: expect.stringMatching(
@@ -67,7 +71,8 @@ describe("PaymentPrepAction", () => {
       walletId: "GWALLET123",
       amount: "1.0",
       recipientId: "GRECIPIENT1",
-      assetCode: "XLM",
+      assetCode: "USDC",
+      assetIssuer: "GISSUER1",
       memo: "invoice-1",
       metadata: { source: "first" }
     };
@@ -83,7 +88,8 @@ describe("PaymentPrepAction", () => {
     const changedIntents: PaymentPrepPayload[] = [
       { ...base, amount: "2.0" },
       { ...base, recipientId: "GRECIPIENT2" },
-      { ...base, assetCode: "USDC" },
+      { ...base, assetCode: "EURC" },
+      { ...base, assetIssuer: "GISSUER2" },
       { ...base, memo: "invoice-2" }
     ];
 
@@ -91,6 +97,97 @@ describe("PaymentPrepAction", () => {
       const changed = await tool.execute({ payload, context });
       expect(changed.transactionStubId).not.toBe(original.transactionStubId);
     }
+  });
+
+  it("requires issuer identity for non-native assets", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-issued-needs-issuer");
+
+    expect(() =>
+      tool.execute({
+        payload: {
+          walletId: "GWALLET123",
+          amount: "10",
+          assetCode: "USDC"
+        },
+        context
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_TASK",
+        details: { fieldName: "assetIssuer", assetCode: "USDC" }
+      })
+    );
+  });
+
+  it("refuses an issuer on native XLM", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-native-no-issuer");
+
+    expect(() =>
+      tool.execute({
+        payload: {
+          walletId: "GWALLET123",
+          amount: "10",
+          assetCode: "XLM",
+          assetIssuer: "GISSUER1"
+        },
+        context
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_TASK",
+        details: { fieldName: "assetIssuer", assetCode: "XLM" }
+      })
+    );
+  });
+
+  it("treats equal asset codes from different issuers as different intents", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-issued-identity");
+    const base: PaymentPrepPayload = {
+      walletId: "GWALLET123",
+      amount: "25",
+      recipientId: "GRECIPIENT1",
+      assetCode: "USDC",
+      assetIssuer: "GISSUER1"
+    };
+
+    const first = tool.execute({ payload: base, context });
+    const second = tool.execute({
+      payload: { ...base, assetIssuer: "GISSUER2" },
+      context
+    });
+
+    expect(first.transactionStubId).not.toBe(second.transactionStubId);
+    expect(first.assetIssuer).toBe("GISSUER1");
+    expect(second.assetIssuer).toBe("GISSUER2");
+  });
+
+  it("preserves native XLM stub identity from the pre-issuer format", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-native-compat");
+    const walletId = "GWALLET123";
+    const result = tool.execute({
+      payload: { walletId, amount: "25" },
+      context
+    });
+    const priorCanonicalIntent = JSON.stringify([
+      context.taskId,
+      walletId,
+      null,
+      "XLM",
+      "250000000",
+      null
+    ]);
+    const priorDigest = createHash("sha256")
+      .update(priorCanonicalIntent, "utf8")
+      .digest("hex");
+
+    expect(result.transactionStubId).toBe(
+      `stellar-stub-${context.taskId}-${walletId}-${priorDigest}`
+    );
+    expect(result.assetIssuer).toBeUndefined();
   });
 
   it("handles numeric amount and defaults assetCode to XLM", async () => {
@@ -107,6 +204,7 @@ describe("PaymentPrepAction", () => {
 
     expect(result.amount).toBe("25");
     expect(result.assetCode).toBe("XLM");
+    expect(result.assetIssuer).toBeUndefined();
     expect(result.status).toBe("prepared");
     expect(result.isSimulated).toBe(true);
   });
@@ -139,6 +237,54 @@ describe("PaymentPrepAction", () => {
         context
       })
     ).toThrowError(RuntimeError);
+  });
+
+  it("rejects invalid asset codes before preparing an intent", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-invalid-asset-code");
+
+    for (const assetCode of ["US D", "USD_", "1234567890123"]) {
+      expect(() =>
+        tool.execute({
+          payload: {
+            walletId: "GWALLET123",
+            amount: "10",
+            assetCode,
+            assetIssuer: "GISSUER1"
+          },
+          context
+        })
+      ).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_TASK",
+          details: { fieldName: "assetCode", assetCode }
+        })
+      );
+    }
+  });
+
+  it("rejects malformed runtime issuer values without coercion", () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-invalid-issuer");
+
+    for (const assetIssuer of [123, true, {}, " GISSUER1", "GISSUER1 "]) {
+      expect(() =>
+        tool.execute({
+          payload: {
+            walletId: "GWALLET123",
+            amount: "10",
+            assetCode: "USDC",
+            assetIssuer: assetIssuer as unknown as string
+          },
+          context
+        })
+      ).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_TASK",
+          details: { fieldName: "assetIssuer" }
+        })
+      );
+    }
   });
 
   it("rejects missing or empty amount", async () => {
