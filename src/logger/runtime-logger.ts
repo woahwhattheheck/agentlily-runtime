@@ -295,7 +295,9 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
     if (this.maxEntries > 0 && this.entries.length >= this.maxEntries) {
       this.entries.shift();
     }
-    const redacted = metadata ? redactValue(metadata, this.redactKeys) : undefined;
+    const redacted = metadata
+      ? redactValue(metadata, this.redactKeys)
+      : undefined;
     const redactedMetadata =
       redacted !== undefined &&
       redacted !== null &&
