@@ -109,23 +109,22 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       throw new Error(`OpenAI-compatible provider request failed: ${message}`);
     }
 
+    // Error bodies are remote-controlled and may be arbitrarily large or
+    // contain reflected credentials. The HTTP status is sufficient for the
+    // public provider error, so do not materialize or serialize the body.
+    if (!response.ok) {
+      throw new Error(
+        `OpenAI-compatible provider returned HTTP ${response.status}.`
+      );
+    }
+
     let responseText: string;
     try {
       responseText = await response.text();
     } catch (error) {
-      if (!response.ok) {
-        responseText = "";
-      } else {
-        throw new Error(
-          `OpenAI-compatible provider could not read HTTP ${response.status} response body.`,
-          { cause: error }
-        );
-      }
-    }
-
-    if (!response.ok) {
       throw new Error(
-        `OpenAI-compatible provider returned HTTP ${response.status}: ${responseText}`
+        `OpenAI-compatible provider could not read HTTP ${response.status} response body.`,
+        { cause: error }
       );
     }
 
