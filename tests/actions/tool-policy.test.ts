@@ -188,6 +188,22 @@ describe("runtime tool policies", () => {
     expect(denied).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps TOOL_NOT_FOUND precedence and does not evaluate policy", async () => {
+    const registry = new ToolRegistry();
+    const evaluate = vi.fn(() => true);
+    const executor = createExecutor(registry, { evaluate });
+
+    await expect(
+      executor.execute("missing", {}, createMockContext("missing-task"))
+    ).rejects.toMatchObject({
+      name: "RuntimeError",
+      code: "TOOL_NOT_FOUND"
+    });
+
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(executor.getToolCallCount("missing-task")).toBe(0);
+  });
+
   it("preserves allow-all behavior when no policy is configured", async () => {
     const registry = new ToolRegistry();
     registry.register({
