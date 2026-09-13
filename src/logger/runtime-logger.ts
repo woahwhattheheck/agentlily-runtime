@@ -29,6 +29,8 @@ export interface ConsoleRuntimeLoggerOptions {
 
 const DEFAULT_REDACT_KEYS = /(secret|token|password|api.?key|authorization)/i;
 const CIRCULAR_METADATA_SENTINEL = "[Circular]";
+const ACCESSOR_METADATA_SENTINEL = "[Accessor]";
+const UNINSPECTABLE_METADATA_SENTINEL = "[Uninspectable]";
 
 function matchesRedactKey(key: string, redactKeys: RegExp): boolean {
   // `RegExp.test()` mutates lastIndex for global/sticky regexes. Treat the
@@ -41,6 +43,26 @@ function matchesRedactKey(key: string, redactKeys: RegExp): boolean {
   } finally {
     redactKeys.lastIndex = originalLastIndex;
   }
+}
+
+function redactDescriptorValue(
+  key: string,
+  descriptor: PropertyDescriptor,
+  redactKeys: RegExp,
+  ancestors: WeakSet<object>
+): unknown {
+  if (matchesRedactKey(key, redactKeys)) {
+    return "[REDACTED]";
+  }
+
+  // Logging must remain observational. Reading an accessor can execute
+  // arbitrary caller code or throw after the operation being logged has
+  // already completed, so preserve the key without invoking the accessor.
+  if (!("value" in descriptor)) {
+    return ACCESSOR_METADATA_SENTINEL;
+  }
+
+  return redactValue(descriptor.value, redactKeys, ancestors);
 }
 
 function redactValue(
@@ -58,19 +80,64 @@ function redactValue(
 
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) {
-      return value.map((item: unknown): unknown =>
-        redactValue(item, redactKeys, ancestors)
-      );
+    let isArray: boolean;
+    let descriptors: PropertyDescriptorMap;
+    try {
+      // Descriptors let us inspect enumerable data properties without invoking
+      // getters. A hostile/revoked Proxy may still reject introspection; keep
+      // that diagnostic value contained rather than failing the log call.
+      isArray = Array.isArray(value);
+      descriptors = Object.getOwnPropertyDescriptors(value);
+    } catch {
+      return UNINSPECTABLE_METADATA_SENTINEL;
+    }
+
+    if (isArray) {
+      const lengthValue = descriptors.length?.value;
+      const length =
+        typeof lengthValue === "number" && Number.isSafeInteger(lengthValue)
+          ? lengthValue
+          : 0;
+      const result: unknown[] = new Array(Math.max(0, length));
+
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (key === "length" || !descriptor.enumerable) {
+          continue;
+        }
+
+        const index = Number(key);
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= result.length ||
+          String(index) !== key
+        ) {
+          continue;
+        }
+
+        result[index] = redactDescriptorValue(
+          key,
+          descriptor,
+          redactKeys,
+          ancestors
+        );
+      }
+
+      return result;
     }
 
     const result: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      if (matchesRedactKey(key, redactKeys)) {
-        result[key] = "[REDACTED]";
-      } else {
-        result[key] = redactValue(entry, redactKeys, ancestors);
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (!descriptor.enumerable) {
+        continue;
       }
+
+      result[key] = redactDescriptorValue(
+        key,
+        descriptor,
+        redactKeys,
+        ancestors
+      );
     }
     return result;
   } finally {
@@ -138,10 +205,12 @@ export class ConsoleRuntimeLogger implements RuntimeLogger {
   private prepareMetadata(
     metadata?: Record<string, unknown>
   ): Record<string, unknown> {
-    return redactValue(metadata ?? {}, this.redactKeys) as Record<
-      string,
-      unknown
-    >;
+    const redacted = redactValue(metadata ?? {}, this.redactKeys);
+    return redacted !== null &&
+      typeof redacted === "object" &&
+      !Array.isArray(redacted)
+      ? (redacted as Record<string, unknown>)
+      : { metadata: redacted };
   }
 }
 
@@ -226,11 +295,16 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
     if (this.maxEntries > 0 && this.entries.length >= this.maxEntries) {
       this.entries.shift();
     }
-    const redactedMetadata = metadata
-      ? (redactValue(metadata, this.redactKeys) as
-          | Record<string, unknown>
-          | undefined)
-      : undefined;
+    const redacted = metadata ? redactValue(metadata, this.redactKeys) : undefined;
+    const redactedMetadata =
+      redacted !== undefined &&
+      redacted !== null &&
+      typeof redacted === "object" &&
+      !Array.isArray(redacted)
+        ? (redacted as Record<string, unknown>)
+        : redacted === undefined
+          ? undefined
+          : { metadata: redacted };
     this.entries.push({ level, message, metadata: redactedMetadata });
   }
 }
