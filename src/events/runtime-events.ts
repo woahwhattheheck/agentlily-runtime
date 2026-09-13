@@ -100,7 +100,10 @@ function listenerErrorMessage(error: unknown): string {
   ) {
     try {
       if (error instanceof Error) {
-        return error.message;
+        const message = error.message;
+        return typeof message === "string"
+          ? message
+          : "Unknown listener failure.";
       }
 
       const message = (error as { message?: unknown }).message;
@@ -116,6 +119,18 @@ function listenerErrorMessage(error: unknown): string {
     return String(error);
   } catch {
     return "Unknown listener failure.";
+  }
+}
+
+function safeConsoleError(message: string, error: unknown): void {
+  try {
+    console.error(message, error);
+  } catch {
+    try {
+      console.error(message);
+    } catch {
+      // Diagnostics must never become a second listener failure channel.
+    }
   }
 }
 
@@ -261,7 +276,7 @@ export class RuntimeEventBus {
     eventName: RuntimeEventName,
     error: unknown
   ): void {
-    console.error(
+    safeConsoleError(
       `[RuntimeEventBus] Listener error during "${eventName}" (listener error):`,
       error
     );
@@ -296,14 +311,14 @@ export class RuntimeEventBus {
       const result = this.onListenerError(error) as unknown;
       if (isPromiseLike(result)) {
         Promise.resolve(result).catch((observerError: unknown) => {
-          console.error(
+          safeConsoleError(
             "[RuntimeEventBus] onListenerError handler failed:",
             observerError
           );
         });
       }
     } catch (observerError) {
-      console.error(
+      safeConsoleError(
         "[RuntimeEventBus] onListenerError handler failed:",
         observerError
       );
