@@ -4,6 +4,8 @@ import type {
   ModelResponse
 } from "./model-provider.js";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -45,6 +47,18 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     } catch {
       throw new Error(
         `Invalid baseUrl provided to OpenAICompatibleModelProvider: "${rawBaseUrl}".`
+      );
+    }
+
+    if (
+      options.timeoutMs !== undefined &&
+      (typeof options.timeoutMs !== "number" ||
+        !Number.isInteger(options.timeoutMs) ||
+        options.timeoutMs < 0 ||
+        options.timeoutMs > MAX_TIMER_DELAY_MS)
+    ) {
+      throw new Error(
+        `OpenAI-compatible provider timeoutMs must be an integer between 0 and ${MAX_TIMER_DELAY_MS}.`
       );
     }
 
