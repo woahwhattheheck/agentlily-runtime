@@ -77,7 +77,7 @@ const acquireCrossProcessLock = async (
   const lockPath = `${resolvedPath}.lock`;
   await mkdir(dirname(resolvedPath), { recursive: true });
 
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   while (true) {
     try {
       // mkdir is an atomic create-if-absent primitive across Node processes on
@@ -90,7 +90,7 @@ const acquireCrossProcessLock = async (
         throw error;
       }
 
-      const elapsedMs = Date.now() - startedAt;
+      const elapsedMs = performance.now() - startedAt;
       if (elapsedMs >= timeoutMs) {
         throw new RuntimeError(
           "STORAGE_LOCKED",
