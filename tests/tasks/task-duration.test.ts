@@ -85,4 +85,40 @@ describe("TaskExecutionResult duration fields", () => {
 
     expect(started).toBeLessThanOrEqual(completed);
   });
+
+  it("rejects invalid timeout values at construction", () => {
+    for (const timeoutMs of [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY
+    ]) {
+      expect(
+        () =>
+          new TaskRunner(
+            makeMockActionExecutor(),
+            makeMockMemoryStore(),
+            timeoutMs
+          )
+      ).toThrow("timeoutMs must be a non-negative integer.");
+    }
+  });
+
+  it("preserves zero as an immediate timeout without persisting output", async () => {
+    const execute = vi.fn(() => new Promise<never>(() => {}));
+    const append = vi.fn(async () => {});
+    const runner = new TaskRunner(
+      { execute } as unknown as ActionExecutor,
+      { append } as unknown as MemoryStore,
+      0
+    );
+
+    await expect(runner.run(makeTask(), mockContext)).rejects.toMatchObject({
+      code: "EXECUTION_FAILED",
+      details: { timeoutMs: 0 }
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+  });
 });
