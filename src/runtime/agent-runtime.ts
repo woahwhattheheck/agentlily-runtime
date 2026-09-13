@@ -4,6 +4,7 @@ import {
   assertNonEmptyValue,
   assertRuntimeStarted
 } from "../guards/runtime-guards.js";
+import type { TaskOutcomeReconciliationReceipt } from "../tasks/task-outcome-reconciliation.js";
 import type { RuntimeTask, TaskExecutionResult } from "../tasks/task-types.js";
 import type { ToolDefinition } from "../tools/types.js";
 import { createRuntimeDependencies } from "./bootstrap.js";
@@ -169,6 +170,49 @@ export class AgentRuntime {
       };
       eventBus.clear?.();
     }
+  }
+
+  /**
+   * Release an unknown-outcome tombstone only after the configured authority
+   * proves that the external side effect was not applied and the prior attempt
+   * can no longer commit. Opaque evidence is passed only to that authority.
+   */
+  public async reconcileUnknownOutcome(
+    taskId: string,
+    evidence: unknown
+  ): Promise<TaskOutcomeReconciliationReceipt> {
+    assertRuntimeStarted(this.started);
+    assertNonEmptyValue(taskId, "taskId");
+
+    if (this.inFlightTasks.has(taskId)) {
+      throw new RuntimeError(
+        "TASK_RECONCILIATION_CONFLICT",
+        `Task "${taskId}" is still reserved by this runtime and cannot be reconciled.`,
+        { taskId }
+      );
+    }
+
+    const receipt = await this.dependencies.taskRunner.reconcileUnknownOutcome(
+      taskId,
+      evidence
+    );
+
+    this.logSafely("info", "Unknown task outcome reconciled for safe retry.", {
+      runtimeId: this.runtimeId,
+      taskId,
+      claimId: receipt.claimId,
+      authorityReference: receipt.authorityReference,
+      evidenceSha256: receipt.evidenceSha256
+    });
+    this.dependencies.eventBus.emit({
+      name: "runtime.task.reconciled",
+      payload: {
+        runtimeId: this.runtimeId,
+        ...receipt
+      }
+    });
+
+    return receipt;
   }
 
   /**

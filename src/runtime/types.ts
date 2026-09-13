@@ -5,6 +5,7 @@ import type { ToolPolicy } from "../policies/tool-policy.js";
 import type { ModelProvider } from "../providers/model-provider.js";
 import type { RuntimeStateStore } from "../state/runtime-state.js";
 import type { TaskClaimStore } from "../tasks/task-claim-store.js";
+import type { TaskOutcomeReconciliationAuthority } from "../tasks/task-outcome-reconciliation.js";
 import type { ToolDefinition } from "../tools/types.js";
 
 export interface RuntimeOptions {
@@ -36,6 +37,12 @@ export interface RuntimeOptions {
    * of `<memoryStoragePath>.task-claims.json` is used automatically.
    */
   taskClaimStoragePath?: string | undefined;
+  /**
+   * Optional control-plane authority that may release an ambiguous task claim
+   * only after proving both that its prior external side effect was not applied
+   * and that the prior attempt is quiescent. There is no permissive default.
+   */
+  taskOutcomeReconciliationAuthority?: TaskOutcomeReconciliationAuthority;
   modelProvider?: ModelProvider;
   logger?: RuntimeLogger;
   stateStore?: RuntimeStateStore;
