@@ -5,6 +5,14 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
 
   public register(tool: ToolDefinition): void {
+    if (typeof tool.name !== "string" || tool.name.trim().length === 0) {
+      throw new RuntimeError(
+        "INVALID_TASK",
+        "tool.name must be a non-empty string.",
+        { fieldName: "tool.name" }
+      );
+    }
+
     if (this.tools.has(tool.name)) {
       throw new RuntimeError(
         "DUPLICATE_TOOL",
