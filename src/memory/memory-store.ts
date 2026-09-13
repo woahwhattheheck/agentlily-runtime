@@ -67,14 +67,20 @@ export class InMemoryMemoryStore implements MemoryStore {
     const resolved =
       typeof options === "number" ? { maxEntries: options } : options;
     const maxEntries = resolved.maxEntries ?? DEFAULT_MAX_MEMORY_ENTRIES;
+    const maxEntriesPerAgent =
+      resolved.maxEntriesPerAgent ?? DEFAULT_MAX_MEMORY_ENTRIES_PER_AGENT;
 
     if (!Number.isInteger(maxEntries) || maxEntries < 1) {
       throw new RangeError("maxEntries must be a positive integer.");
     }
+    if (!Number.isInteger(maxEntriesPerAgent) || maxEntriesPerAgent < 0) {
+      throw new RangeError(
+        "maxEntriesPerAgent must be a non-negative integer."
+      );
+    }
 
     this.maxEntries = maxEntries;
-    this.maxEntriesPerAgent =
-      resolved.maxEntriesPerAgent ?? DEFAULT_MAX_MEMORY_ENTRIES_PER_AGENT;
+    this.maxEntriesPerAgent = maxEntriesPerAgent;
   }
 
   public get capacity(): number {
