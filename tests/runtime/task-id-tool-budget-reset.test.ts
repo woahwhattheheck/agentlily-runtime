@@ -27,12 +27,20 @@ describe("AgentRuntime task ID tool-call budget lifecycle", () => {
 
     await runtime.start();
 
-    await expect(runtime.executeTask(task("reused-task", "ping"))).resolves.toBeDefined();
-    expect(runtime.getDependencies().actionExecutor.getToolCallCount("reused-task")).toBe(0);
+    await expect(
+      runtime.executeTask(task("reused-task", "ping"))
+    ).resolves.toBeDefined();
+    expect(
+      runtime.getDependencies().actionExecutor.getToolCallCount("reused-task")
+    ).toBe(0);
 
-    await expect(runtime.executeTask(task("reused-task", "ping"))).resolves.toBeDefined();
+    await expect(
+      runtime.executeTask(task("reused-task", "ping"))
+    ).resolves.toBeDefined();
     expect(calls).toBe(2);
-    expect(runtime.getDependencies().actionExecutor.getToolCallCount("reused-task")).toBe(0);
+    expect(
+      runtime.getDependencies().actionExecutor.getToolCallCount("reused-task")
+    ).toBe(0);
   });
 
   it("gives a failed reused task ID a fresh tool-call budget", async () => {
@@ -55,12 +63,18 @@ describe("AgentRuntime task ID tool-call budget lifecycle", () => {
 
     await runtime.start();
 
-    await expect(runtime.executeTask(task("failed-reuse", "fail"))).rejects.toThrow(
-      "deliberate failure"
-    );
-    expect(runtime.getDependencies().actionExecutor.getToolCallCount("failed-reuse")).toBe(0);
+    await expect(
+      runtime.executeTask(task("failed-reuse", "fail"))
+    ).rejects.toThrow("deliberate failure");
+    expect(
+      runtime.getDependencies().actionExecutor.getToolCallCount("failed-reuse")
+    ).toBe(0);
 
-    await expect(runtime.executeTask(task("failed-reuse", "recover"))).resolves.toBeDefined();
-    expect(runtime.getDependencies().actionExecutor.getToolCallCount("failed-reuse")).toBe(0);
+    await expect(
+      runtime.executeTask(task("failed-reuse", "recover"))
+    ).resolves.toBeDefined();
+    expect(
+      runtime.getDependencies().actionExecutor.getToolCallCount("failed-reuse")
+    ).toBe(0);
   });
 });
