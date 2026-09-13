@@ -63,7 +63,10 @@ describe("TaskRunner direct-call context identity", () => {
     const harness = createHarness();
 
     await expect(
-      harness.runner.run(createTask("task-1", "agent-1"), createContext("task-1", "agent-2"))
+      harness.runner.run(
+        createTask("task-1", "agent-1"),
+        createContext("task-1", "agent-2")
+      )
     ).rejects.toMatchObject({
       code: "INVALID_TASK",
       message: "task.agentId must match context.agent.agentId.",
