@@ -9,6 +9,8 @@ const context = {
   taskId: "asset-code-validation",
   now: "2026-09-13T04:20:00.000Z"
 } as unknown as RuntimeContext;
+const validIssuer =
+  "GC2BKLYOOYPDEFJKLKY6FNNRQMGFLVHJKQRGNSSRRGSMPGF32LHCQVGF";
 
 describe("payment preparation assetCode runtime validation", () => {
   it.each(["", "   ", 0, false, ["USDC"], { code: "USDC" }])(
@@ -30,7 +32,7 @@ describe("payment preparation assetCode runtime validation", () => {
     }
   );
 
-  it("preserves the nullish XLM default and valid explicit codes", () => {
+  it("preserves the nullish XLM default and valid explicit issued assets", () => {
     const tool = createPaymentPrepTool();
 
     const omitted = tool.execute({
@@ -46,12 +48,18 @@ describe("payment preparation assetCode runtime validation", () => {
       context
     });
     const explicit = tool.execute({
-      payload: { walletId: "GWALLET123", amount: "1", assetCode: "USDC" },
+      payload: {
+        walletId: "GWALLET123",
+        amount: "1",
+        assetCode: "USDC",
+        assetIssuer: validIssuer
+      },
       context
     });
 
     expect(omitted.assetCode).toBe("XLM");
     expect(runtimeNull.assetCode).toBe("XLM");
     expect(explicit.assetCode).toBe("USDC");
+    expect(explicit.assetIssuer).toBe(validIssuer);
   });
 });
