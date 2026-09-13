@@ -10,7 +10,8 @@ export type RuntimeErrorCode =
   | "EXECUTION_FAILED"
   | "MAX_TOOL_CALLS_EXCEEDED"
   | "TOOL_POLICY_DENIED"
-  | "STORAGE_CORRUPTED";
+  | "STORAGE_CORRUPTED"
+  | "STORAGE_LOCKED";
 
 export class RuntimeError extends Error {
   public readonly code: RuntimeErrorCode;
