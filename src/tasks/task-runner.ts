@@ -93,27 +93,36 @@ export class TaskRunner {
     payload: TPayload,
     context: RuntimeContext
   ): Promise<TResult> {
-    const execution = this.actionExecutor.execute<TPayload, TResult>(
-      toolName,
-      payload,
-      context
-    );
     const timeoutMs = this.timeoutMs;
 
     if (timeoutMs === undefined) {
-      return execution;
+      return this.actionExecutor.execute<TPayload, TResult>(
+        toolName,
+        payload,
+        context
+      );
     }
+
+    const abortController = new AbortController();
+    const execution = this.actionExecutor.execute<TPayload, TResult>(
+      toolName,
+      payload,
+      { ...context, abortSignal: abortController.signal }
+    );
 
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        reject(
-          new RuntimeError(
-            "EXECUTION_FAILED",
-            `Task execution timed out after ${timeoutMs}ms.`,
-            { timeoutMs }
-          )
+        const error = new RuntimeError(
+          "EXECUTION_FAILED",
+          `Task execution timed out after ${timeoutMs}ms.`,
+          { timeoutMs }
         );
+
+        // Settle the public timeout first, then synchronously notify a
+        // cooperative tool before the runtime returns control to its caller.
+        reject(error);
+        abortController.abort(error);
       }, timeoutMs);
     });
 
