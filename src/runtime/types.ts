@@ -4,6 +4,7 @@ import type { MemoryStore } from "../memory/memory-store.js";
 import type { ToolPolicy } from "../policies/tool-policy.js";
 import type { ModelProvider } from "../providers/model-provider.js";
 import type { RuntimeStateStore } from "../state/runtime-state.js";
+import type { TaskOutcomeStore } from "../tasks/task-outcome-store.js";
 import type { ToolDefinition } from "../tools/types.js";
 
 export interface RuntimeOptions {
@@ -23,6 +24,16 @@ export interface RuntimeOptions {
   maxTaskDurationMs?: number;
   memoryStore?: MemoryStore;
   memoryStoragePath?: string | undefined;
+  /**
+   * Optional task-outcome authority. Supply this with a custom MemoryStore when
+   * ambiguous side-effect outcomes must survive runtime reconstruction.
+   */
+  taskOutcomeStore?: TaskOutcomeStore;
+  /**
+   * File-backed task-outcome journal path. When omitted and memoryStoragePath is
+   * configured, the runtime automatically uses `${memoryStoragePath}.task-outcomes.json`.
+   */
+  taskOutcomeStoragePath?: string | undefined;
   modelProvider?: ModelProvider;
   logger?: RuntimeLogger;
   stateStore?: RuntimeStateStore;
