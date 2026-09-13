@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { RuntimeError } from "../errors/runtime-errors.js";
 import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { ToolDefinition, ToolInvocation } from "../tools/types.js";
@@ -70,7 +72,10 @@ function normalizeNumericAmount(amount: number): string {
   return amountStr;
 }
 
-function normalizeStellarAmount(amount: string | number): string {
+function normalizeStellarAmount(amount: string | number): {
+  amount: string;
+  stroops: bigint;
+} {
   const amountStr =
     typeof amount === "number" ? normalizeNumericAmount(amount) : amount;
   const match = DECIMAL_AMOUNT_RE.exec(amountStr);
@@ -86,7 +91,33 @@ function normalizeStellarAmount(amount: string | number): string {
     return invalidAmount(amount);
   }
 
-  return amountStr;
+  return { amount: amountStr, stroops };
+}
+
+function createTransactionStubId(input: {
+  taskId: string;
+  walletId: string;
+  recipientId: string | undefined;
+  assetCode: string;
+  amountStroops: bigint;
+  memo: string | undefined;
+}): string {
+  // Metadata is intentionally excluded: it is audit context rather than part of
+  // the Stellar payment intent. Amount identity is expressed in stroops so
+  // equivalent spellings such as "1", "1.0", and 1 share one idempotency key.
+  const canonicalIntent = JSON.stringify([
+    input.taskId,
+    input.walletId,
+    input.recipientId ?? null,
+    input.assetCode,
+    input.amountStroops.toString(),
+    input.memo ?? null
+  ]);
+  const intentDigest = createHash("sha256")
+    .update(canonicalIntent, "utf8")
+    .digest("hex");
+
+  return `stellar-stub-${input.taskId}-${input.walletId}-${intentDigest}`;
 }
 
 export function createPaymentPrepTool(): ToolDefinition<
@@ -127,10 +158,18 @@ export function createPaymentPrepTool(): ToolDefinition<
         );
       }
 
-      const amountStr = normalizeStellarAmount(amount);
+      const normalizedAmount = normalizeStellarAmount(amount);
+      const amountStr = normalizedAmount.amount;
 
       const preparedAt = context.now || new Date().toISOString();
-      const transactionStubId = `stellar-stub-${context.taskId}-${payload.walletId}`;
+      const transactionStubId = createTransactionStubId({
+        taskId: context.taskId,
+        walletId: payload.walletId,
+        recipientId: payload.recipientId,
+        assetCode,
+        amountStroops: normalizedAmount.stroops,
+        memo: payload.memo
+      });
 
       return {
         status: "prepared",
