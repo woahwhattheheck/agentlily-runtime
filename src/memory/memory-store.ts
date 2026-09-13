@@ -74,6 +74,22 @@ const cloneOutput = (val: unknown): unknown => {
   }
 };
 
+const isPersistedMemoryEntry = (
+  value: unknown
+): value is Record<string, unknown> & MemoryEntry => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.agentId === "string" &&
+    typeof candidate.taskId === "string" &&
+    typeof candidate.input === "string" &&
+    typeof candidate.recordedAt === "string"
+  );
+};
+
 export class InMemoryMemoryStore implements MemoryStore {
   private readonly entries: MemoryEntry[] = [];
 
@@ -278,7 +294,21 @@ export class JsonFileMemoryStore implements MemoryStore {
       );
     }
 
-    return parsed as MemoryEntry[];
+    const invalidEntryIndex = parsed.findIndex(
+      (entry) => !isPersistedMemoryEntry(entry)
+    );
+    if (invalidEntryIndex !== -1) {
+      throw new RuntimeError(
+        "STORAGE_CORRUPTED",
+        `Corrupted memory storage file at ${this.filePath}: invalid memory entry at index ${invalidEntryIndex}.`,
+        {
+          filePath: this.filePath,
+          entryIndex: invalidEntryIndex
+        }
+      );
+    }
+
+    return parsed;
   }
 
   private async flushAtomic(entries: MemoryEntry[]): Promise<void> {
