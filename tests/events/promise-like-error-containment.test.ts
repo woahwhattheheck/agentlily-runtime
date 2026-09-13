@@ -160,26 +160,29 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
     errorSpy.mockRestore();
   });
 
-  it("contains native console formatting failures from hostile listener values", () => {
-    const bus = new RuntimeEventBus();
-    const internalErrors: string[] = [];
-    const customInspect = Symbol.for("nodejs.util.inspect.custom");
-    const hostile = {
-      [customInspect]() {
-        throw new Error("inspect trap");
-      }
-    };
+  it(
+    "contains native console formatting failures from hostile listener values",
+    () => {
+      const bus = new RuntimeEventBus();
+      const internalErrors: string[] = [];
+      const customInspect = Symbol.for("nodejs.util.inspect.custom");
+      const hostile = {
+        [customInspect]() {
+          throw new Error("inspect trap");
+        }
+      };
 
-    bus.on("runtime.internal.error", (event) => {
-      internalErrors.push(event.payload.errorMessage);
-    });
-    bus.on("runtime.started", () => {
-      throw hostile;
-    });
+      bus.on("runtime.internal.error", (event) => {
+        internalErrors.push(event.payload.errorMessage);
+      });
+      bus.on("runtime.started", () => {
+        throw hostile;
+      });
 
-    expect(() => bus.emit(startedEvent("rt-hostile-inspect"))).not.toThrow();
-    expect(internalErrors).toEqual(["[object Object]"]);
-  });
+      expect(() => bus.emit(startedEvent("rt-hostile-inspect"))).not.toThrow();
+      expect(internalErrors).toEqual(["[object Object]"]);
+    }
+  );
 
   it("keeps same-realm Error diagnostics string-typed at runtime", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
