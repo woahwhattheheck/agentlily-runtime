@@ -131,12 +131,14 @@ export class ActionExecutor {
     let decision: Awaited<ReturnType<ToolPolicy["evaluate"]>>;
     try {
       decision = await this.toolPolicy.evaluate({ toolName, payload, context });
-    } catch (error) {
+    } catch {
+      // A policy backend may throw credential-bearing or provider-specific
+      // diagnostics. Fail closed without copying that exception into public
+      // runtime errors, audit events, or ordinary logs.
       this.denyTool(
         toolName,
         context,
-        `Tool "${toolName}" denied because policy evaluation failed.`,
-        error
+        `Tool "${toolName}" denied because policy evaluation failed.`
       );
     }
 
@@ -164,8 +166,7 @@ export class ActionExecutor {
   private denyTool(
     toolName: string,
     context: RuntimeContext,
-    reason: string,
-    cause?: unknown
+    reason: string
   ): never {
     this.eventBus?.emit({
       name: "runtime.tool.denied",
@@ -182,12 +183,7 @@ export class ActionExecutor {
     throw new RuntimeError("TOOL_POLICY_DENIED", reason, {
       toolName,
       taskId: context.taskId,
-      reason,
-      ...(cause === undefined
-        ? {}
-        : {
-            cause: cause instanceof Error ? cause.message : String(cause)
-          })
+      reason
     });
   }
 
