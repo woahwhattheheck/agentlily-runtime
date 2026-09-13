@@ -60,10 +60,7 @@ function assertListMemoryOptions(options?: ListMemoryOptions): void {
 }
 
 const cloneOutput = (val: unknown): unknown => {
-  if (
-    val === null ||
-    (typeof val !== "object" && typeof val !== "function")
-  ) {
+  if (val === null || (typeof val !== "object" && typeof val !== "function")) {
     return val;
   }
   try {
