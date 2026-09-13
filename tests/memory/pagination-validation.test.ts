@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -88,6 +88,9 @@ describe("memory list pagination validation", () => {
   });
 
   it("rejects invalid JsonFile pagination before reading backend contents", async () => {
+    await mkdir(dirname(tempFilePath), { recursive: true });
+    await writeFile(tempFilePath, "corrupt-json{{", "utf-8");
+
     const store = new JsonFileMemoryStore(tempFilePath);
     const invalidOptions: ListMemoryOptions = { offset: -1 };
 
