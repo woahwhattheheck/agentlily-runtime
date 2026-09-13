@@ -26,6 +26,30 @@ describe("ToolRegistry", () => {
     }
   });
 
+  it("rejects invalid tool names before registry mutation", () => {
+    const registry = new ToolRegistry();
+
+    for (const invalidName of ["", " \t\n", 123, false] as const) {
+      try {
+        registry.register({
+          name: invalidName as unknown as string,
+          description: "invalid tool",
+          execute: () => "should-not-run"
+        });
+        expect.fail("should have thrown");
+      } catch (e) {
+        const err = e as RuntimeError;
+        expect(err).toBeInstanceOf(RuntimeError);
+        expect(err.code).toBe("INVALID_TASK");
+        expect(err.details).toEqual({ fieldName: "tool.name" });
+        expect(err.message).toBe("tool.name must be a non-empty string.");
+      }
+
+      expect(registry.size()).toBe(0);
+      expect(registry.list()).toEqual([]);
+    }
+  });
+
   it("allows registering different tools with distinct names", () => {
     const registry = new ToolRegistry();
     registry.register({ name: "a", description: "A", execute: () => "a" });
@@ -94,8 +118,8 @@ describe("ToolRegistry", () => {
 
     const removed = registry.unregister("echo");
     expect(removed).toBe(true);
-    expect(registry.has("echo")).toBe(false);
     expect(registry.size()).toBe(0);
+    expect(registry.has("echo")).toBe(false);
 
     expect(() => registry.get("echo")).toThrowError(RuntimeError);
     try {
