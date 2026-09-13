@@ -104,9 +104,10 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
 
     try {
       response = await fetch(url, requestInit);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`OpenAI-compatible provider request failed: ${message}`);
+    } catch {
+      // Fetch implementations, proxies, or adapters may include credentials in
+      // thrown diagnostics. Keep the public provider boundary categorical only.
+      throw new Error("OpenAI-compatible provider request failed.");
     }
 
     // Error bodies are remote-controlled and may be arbitrarily large or
@@ -121,21 +122,22 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     let responseText: string;
     try {
       responseText = await response.text();
-    } catch (error) {
+    } catch {
+      // Body readers can surface transport- or adapter-specific diagnostics.
+      // Expose the safe HTTP status, not the upstream exception object.
       throw new Error(
-        `OpenAI-compatible provider could not read HTTP ${response.status} response body.`,
-        { cause: error }
+        `OpenAI-compatible provider could not read HTTP ${response.status} response body.`
       );
     }
 
     let data: unknown;
     try {
       data = JSON.parse(responseText) as unknown;
-    } catch (error) {
-      const excerpt = JSON.stringify(responseText.slice(0, 200));
+    } catch {
+      // Even a successful endpoint can reflect sensitive content in malformed
+      // bodies. Do not quote body bytes or attach the parser exception.
       throw new Error(
-        `OpenAI-compatible provider returned invalid JSON (HTTP ${response.status}): ${excerpt}${responseText.length > 200 ? "..." : ""}`,
-        { cause: error }
+        `OpenAI-compatible provider returned invalid JSON (HTTP ${response.status}).`
       );
     }
 
