@@ -17,6 +17,14 @@ const MAX_STELLAR_AMOUNT_STROOPS = 9_223_372_036_854_775_807n;
 const DECIMAL_AMOUNT_RE = /^\d+(?:\.\d{1,7})?$/;
 const STELLAR_ASSET_CODE_RE = /^[A-Za-z0-9]{1,12}$/;
 const STELLAR_ACCOUNT_ID_RE = /^G[A-Z2-7]{55}$/;
+const PAYMENT_DATA_FIELDS = [
+  "walletId",
+  "amount",
+  "recipientId",
+  "assetCode",
+  "assetIssuer",
+  "memo"
+] as const;
 
 export interface StellarPaymentAssetPolicy {
   assetCode: string;
@@ -47,6 +55,16 @@ interface CompiledWalletPolicy {
 interface DataField {
   ok: boolean;
   value?: unknown;
+}
+
+type PlainDataSnapshot =
+  | { ok: true; value: unknown }
+  | { ok: false };
+
+interface FieldReplacement {
+  key: string;
+  descriptor: PropertyDescriptor;
+  value: unknown;
 }
 
 function denial(reason: string): ToolPolicyDecision {
@@ -183,51 +201,231 @@ function readOwnDataField(value: object, fieldName: string): DataField {
   }
 }
 
+/**
+ * Copy one approval-digest-compatible data graph into immutable plain data.
+ *
+ * ToolApprovalPolicy binds enumerable own data properties on plain objects and
+ * dense arrays. Mirroring that domain here means the payment policy can make
+ * the exact graph immutable without changing its digest. Proxies, accessors,
+ * symbols, exotic objects, cycles, and shared object references are rejected
+ * rather than partially copied.
+ */
+function snapshotPlainData(
+  value: unknown,
+  visited: Set<object>
+): PlainDataSnapshot {
+  if (value === null) {
+    return { ok: true, value: null };
+  }
+
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+    case "undefined":
+    case "bigint":
+      return { ok: true, value };
+    case "number":
+      return Number.isFinite(value)
+        ? { ok: true, value }
+        : { ok: false };
+    case "object":
+      break;
+    default:
+      return { ok: false };
+  }
+
+  try {
+    if (utilTypes.isProxy(value)) {
+      return { ok: false };
+    }
+  } catch {
+    return { ok: false };
+  }
+
+  if (visited.has(value)) {
+    return { ok: false };
+  }
+  visited.add(value);
+
+  if (Array.isArray(value)) {
+    let ownKeys: (string | symbol)[];
+    try {
+      ownKeys = Reflect.ownKeys(value);
+    } catch {
+      return { ok: false };
+    }
+
+    for (const key of ownKeys) {
+      if (typeof key === "symbol") {
+        return { ok: false };
+      }
+      if (key === "length") {
+        continue;
+      }
+      const index = Number(key);
+      if (
+        !Number.isSafeInteger(index) ||
+        index < 0 ||
+        String(index) !== key ||
+        index >= value.length
+      ) {
+        return { ok: false };
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        descriptor === undefined ||
+        descriptor.enumerable !== true ||
+        !("value" in descriptor)
+      ) {
+        return { ok: false };
+      }
+    }
+
+    const snapshot: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (
+        descriptor === undefined ||
+        descriptor.enumerable !== true ||
+        !("value" in descriptor)
+      ) {
+        return { ok: false };
+      }
+      const item = snapshotPlainData(descriptor.value, visited);
+      if (!item.ok) {
+        return item;
+      }
+      snapshot.push(item.value);
+    }
+    return { ok: true, value: Object.freeze(snapshot) };
+  }
+
+  let prototype: object | null;
+  let ownKeys: (string | symbol)[];
+  try {
+    prototype = Object.getPrototypeOf(value);
+    ownKeys = Reflect.ownKeys(value);
+  } catch {
+    return { ok: false };
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    return { ok: false };
+  }
+  if (ownKeys.some((key) => typeof key === "symbol")) {
+    return { ok: false };
+  }
+
+  const snapshot = Object.create(null) as Record<string, unknown>;
+  for (const key of ownKeys as string[]) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      return { ok: false };
+    }
+    const item = snapshotPlainData(descriptor.value, visited);
+    if (!item.ok) {
+      return item;
+    }
+    Object.defineProperty(snapshot, key, {
+      value: item.value,
+      writable: false,
+      enumerable: true,
+      configurable: false
+    });
+  }
+  return { ok: true, value: Object.freeze(snapshot) };
+}
+
 function bindAuthorizedPaymentPayload(
   original: unknown,
   authorized: PaymentPrepPayload
 ): boolean {
-  if (original === null || typeof original !== "object") {
+  if (
+    original === null ||
+    typeof original !== "object" ||
+    Array.isArray(original)
+  ) {
     return false;
   }
 
-  const fields = [
-    "walletId",
-    "amount",
-    "recipientId",
-    "assetCode",
-    "assetIssuer",
-    "memo"
-  ] as const;
+  let prototype: object | null;
+  try {
+    if (utilTypes.isProxy(original)) {
+      return false;
+    }
+    prototype = Object.getPrototypeOf(original);
+  } catch {
+    return false;
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    return false;
+  }
+
+  for (const fieldName of PAYMENT_DATA_FIELDS) {
+    const field = readOwnDataField(original, fieldName);
+    if (!field.ok || field.value !== authorized[fieldName]) {
+      return false;
+    }
+  }
+
+  let ownKeys: (string | symbol)[];
+  try {
+    ownKeys = Reflect.ownKeys(original);
+  } catch {
+    return false;
+  }
+  if (ownKeys.some((key) => typeof key === "symbol")) {
+    return false;
+  }
+
+  const replacements: FieldReplacement[] = [];
+  const visited = new Set<object>([original]);
+  for (const key of ownKeys as string[]) {
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      return false;
+    }
+    const snapshot = snapshotPlainData(descriptor.value, visited);
+    if (!snapshot.ok) {
+      return false;
+    }
+    if (
+      !Object.is(snapshot.value, descriptor.value) &&
+      descriptor.configurable !== true &&
+      descriptor.writable !== true
+    ) {
+      return false;
+    }
+    replacements.push({ key, descriptor, value: snapshot.value });
+  }
+
+  // Nulling the root prototype blocks later Object.prototype pollution without
+  // synthesizing hidden optional fields. That preserves the exact own-key shape
+  // and therefore the digest of an approval granted before policy evaluation.
+  if (prototype !== null && !Object.isExtensible(original)) {
+    return false;
+  }
 
   try {
-    for (const fieldName of fields) {
-      const field = readOwnDataField(original, fieldName);
-      if (!field.ok || field.value !== authorized[fieldName]) {
-        return false;
-      }
-      if (Object.getOwnPropertyDescriptor(original, fieldName) === undefined) {
-        Object.defineProperty(original, fieldName, {
-          value: undefined,
-          writable: false,
-          enumerable: false,
-          configurable: false
-        });
-      }
+    if (prototype !== null) {
+      Object.setPrototypeOf(original, null);
     }
-
-    // Shadow prototype-polluted metadata as well. Metadata is audit context, not
-    // authorization state, but the execution path should observe the same
-    // top-level lookup semantics that policy evaluation approved.
-    if (Object.getOwnPropertyDescriptor(original, "metadata") === undefined) {
-      Object.defineProperty(original, "metadata", {
-        value: undefined,
-        writable: false,
-        enumerable: false,
-        configurable: false
+    for (const replacement of replacements) {
+      if (Object.is(replacement.value, replacement.descriptor.value)) {
+        continue;
+      }
+      Object.defineProperty(original, replacement.key, {
+        ...replacement.descriptor,
+        value: replacement.value
       });
     }
-
     Object.freeze(original);
     return true;
   } catch {
@@ -257,12 +455,7 @@ function snapshotPaymentPayload(
   }
 
   const fields = [
-    "walletId",
-    "amount",
-    "recipientId",
-    "assetCode",
-    "assetIssuer",
-    "memo",
+    ...PAYMENT_DATA_FIELDS,
     "metadata"
   ] as const;
   const values = new Map<(typeof fields)[number], unknown>();
@@ -419,10 +612,11 @@ export class StellarPaymentIntentPolicy implements ToolPolicy {
       return denial("Payment policy requires a non-empty memo.");
     }
 
-    // Policy evaluation may cross an await boundary before the executor invokes
-    // the tool. Re-read the original top-level payment fields and freeze the
-    // actual payload object before returning allow so a caller cannot swap an
-    // approved intent for a different one in that gap.
+    // Policy evaluation crosses an await boundary before any later composed
+    // approval and before the executor invokes the tool. Re-read the authorized
+    // payment fields, preserve the payload's exact own-key digest shape, and
+    // replace its entire plain-data graph with immutable snapshots. This binds
+    // both payment identity and audit/extension context through those gaps.
     if (!bindAuthorizedPaymentPayload(request.payload, payload)) {
       return denial("Payment payload changed during policy evaluation.");
     }
