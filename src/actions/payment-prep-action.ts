@@ -9,6 +9,12 @@ const STROOPS_PER_UNIT_NUMBER = 10_000_000;
 const MAX_STELLAR_AMOUNT_STROOPS = 9_223_372_036_854_775_807n;
 const DECIMAL_AMOUNT_RE = /^\d+(?:\.\d{1,7})?$/;
 const STELLAR_ASSET_CODE_RE = /^[A-Za-z0-9]{1,12}$/;
+const STELLAR_ACCOUNT_ID_RE = /^G[A-Z2-7]{55}$/;
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const ED25519_PUBLIC_KEY_VERSION_BYTE = 6 << 3;
+const STELLAR_ACCOUNT_ID_DECODED_BYTES = 35;
+const STELLAR_ACCOUNT_ID_PAYLOAD_BYTES = 33;
+const MEMO_TEXT_MAX_BYTES = 28;
 
 export interface PaymentPrepPayload {
   walletId: string;
@@ -97,6 +103,99 @@ function normalizeStellarAmount(amount: string | number): {
   return { amount: amountStr, stroops };
 }
 
+function decodeBase32(value: string): Uint8Array | undefined {
+  let bitCount = 0;
+  let bitBuffer = 0;
+  const output: number[] = [];
+
+  for (const character of value) {
+    const digit = BASE32_ALPHABET.indexOf(character);
+    if (digit < 0) {
+      return undefined;
+    }
+
+    bitBuffer = (bitBuffer << 5) | digit;
+    bitCount += 5;
+
+    while (bitCount >= 8) {
+      bitCount -= 8;
+      output.push((bitBuffer >>> bitCount) & 0xff);
+      bitBuffer = bitCount === 0 ? 0 : bitBuffer & ((1 << bitCount) - 1);
+    }
+  }
+
+  if (bitCount !== 0 && bitBuffer !== 0) {
+    return undefined;
+  }
+
+  return Uint8Array.from(output);
+}
+
+function crc16Xmodem(bytes: Uint8Array): number {
+  let checksum = 0;
+
+  for (const byte of bytes) {
+    checksum ^= byte << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      checksum =
+        (checksum & 0x8000) !== 0
+          ? ((checksum << 1) ^ 0x1021) & 0xffff
+          : (checksum << 1) & 0xffff;
+    }
+  }
+
+  return checksum;
+}
+
+function isValidStellarAccountId(value: string): boolean {
+  if (!STELLAR_ACCOUNT_ID_RE.test(value)) {
+    return false;
+  }
+
+  const decoded = decodeBase32(value);
+  if (
+    decoded === undefined ||
+    decoded.byteLength !== STELLAR_ACCOUNT_ID_DECODED_BYTES ||
+    decoded[0] !== ED25519_PUBLIC_KEY_VERSION_BYTE
+  ) {
+    return false;
+  }
+
+  const checksumLow = decoded[STELLAR_ACCOUNT_ID_PAYLOAD_BYTES];
+  const checksumHigh = decoded[STELLAR_ACCOUNT_ID_PAYLOAD_BYTES + 1];
+  if (checksumLow === undefined || checksumHigh === undefined) {
+    return false;
+  }
+
+  const expectedChecksum = checksumLow | (checksumHigh << 8);
+  const actualChecksum = crc16Xmodem(
+    decoded.subarray(0, STELLAR_ACCOUNT_ID_PAYLOAD_BYTES)
+  );
+  return actualChecksum === expectedChecksum;
+}
+
+function normalizeMemo(memo: unknown): string | undefined {
+  if (memo === undefined) {
+    return undefined;
+  }
+  if (typeof memo !== "string") {
+    throw new RuntimeError("INVALID_TASK", "memo must be a string.", {
+      fieldName: "memo"
+    });
+  }
+
+  const memoBytes = Buffer.byteLength(memo, "utf8");
+  if (memoBytes > MEMO_TEXT_MAX_BYTES) {
+    throw new RuntimeError(
+      "INVALID_TASK",
+      `memo must be at most ${MEMO_TEXT_MAX_BYTES} UTF-8 bytes.`,
+      { fieldName: "memo", memoBytes, maxMemoBytes: MEMO_TEXT_MAX_BYTES }
+    );
+  }
+
+  return memo;
+}
+
 function createTransactionStubId(input: {
   taskId: string;
   walletId: string;
@@ -175,6 +274,13 @@ export function createPaymentPrepTool(): ToolDefinition<
             { fieldName: "assetIssuer", assetCode }
           );
         }
+        if (!isValidStellarAccountId(assetIssuer)) {
+          throw new RuntimeError(
+            "INVALID_TASK",
+            "assetIssuer must be a valid Stellar G-account ID.",
+            { fieldName: "assetIssuer" }
+          );
+        }
       } else if (assetCode !== "XLM") {
         throw new RuntimeError(
           "INVALID_TASK",
@@ -183,6 +289,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         );
       }
 
+      const memo = normalizeMemo(payload.memo);
       const amount = payload.amount as unknown;
       if (
         amount === undefined ||
@@ -213,7 +320,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         assetCode,
         assetIssuer,
         amountStroops: normalizedAmount.stroops,
-        memo: payload.memo
+        memo
       });
 
       return {
@@ -223,7 +330,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         recipientId: payload.recipientId,
         assetCode,
         assetIssuer,
-        memo: payload.memo,
+        memo,
         preparedAt,
         transactionStubId,
         isSimulated: true,
