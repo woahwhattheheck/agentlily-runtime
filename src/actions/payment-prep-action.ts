@@ -2,6 +2,10 @@ import { RuntimeError } from "../errors/runtime-errors.js";
 import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { ToolDefinition, ToolInvocation } from "../tools/types.js";
 
+const STROOPS_PER_UNIT = 10_000_000n;
+const MAX_STELLAR_AMOUNT_STROOPS = 9_223_372_036_854_775_807n;
+const DECIMAL_AMOUNT_RE = /^\d+(?:\.\d{1,7})?$/;
+
 export interface PaymentPrepPayload {
   walletId: string;
   amount: string | number;
@@ -25,6 +29,52 @@ export interface PaymentPrepResult {
 }
 
 export const PAYMENT_PREP_TOOL_NAME = "wallet.prepare_payment";
+
+function invalidAmount(amount: unknown): never {
+  throw new RuntimeError(
+    "INVALID_TASK",
+    "amount must be a positive Stellar decimal with at most 7 fractional digits.",
+    { amount }
+  );
+}
+
+function normalizeNumericAmount(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return invalidAmount(amount);
+  }
+
+  let amountStr = String(amount);
+  if (/e/i.test(amountStr)) {
+    // Small valid numeric amounts such as 1e-7 stringify in exponent notation,
+    // which Stellar payment amounts do not use. Convert only when seven fixed
+    // fractional digits can represent the same Number exactly.
+    const fixed = amount.toFixed(7);
+    if (Number(fixed) !== amount) {
+      return invalidAmount(amount);
+    }
+    amountStr = fixed.replace(/\.?(?:0+)$/, "");
+  }
+  return amountStr;
+}
+
+function normalizeStellarAmount(amount: string | number): string {
+  const amountStr =
+    typeof amount === "number" ? normalizeNumericAmount(amount) : amount;
+  const match = DECIMAL_AMOUNT_RE.exec(amountStr);
+  if (match === null) {
+    return invalidAmount(amount);
+  }
+
+  const [wholePart, fractionalPart = ""] = amountStr.split(".");
+  const stroops =
+    BigInt(wholePart) * STROOPS_PER_UNIT +
+    BigInt(fractionalPart.padEnd(7, "0") || "0");
+  if (stroops <= 0n || stroops > MAX_STELLAR_AMOUNT_STROOPS) {
+    return invalidAmount(amount);
+  }
+
+  return amountStr;
+}
 
 export function createPaymentPrepTool(): ToolDefinition<
   PaymentPrepPayload,
@@ -59,15 +109,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         );
       }
 
-      const amountStr = String(amount);
-      const parsedAmount = Number(amountStr);
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        throw new RuntimeError(
-          "INVALID_TASK",
-          "amount must be a positive finite number.",
-          { amount }
-        );
-      }
+      const amountStr = normalizeStellarAmount(amount);
 
       const preparedAt = context.now || new Date().toISOString();
       const transactionStubId = `stellar-stub-${context.taskId}-${payload.walletId}`;
