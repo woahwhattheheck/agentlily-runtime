@@ -52,7 +52,10 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       );
     }
 
-    if (parsedBaseUrl.protocol !== "http:" && parsedBaseUrl.protocol !== "https:") {
+    if (
+      parsedBaseUrl.protocol !== "http:" &&
+      parsedBaseUrl.protocol !== "https:"
+    ) {
       throw new Error(
         "OpenAI-compatible provider baseUrl must use http or https."
       );
@@ -62,7 +65,10 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     // the configured base would capture that suffix as query/fragment text
     // instead of routing to /chat/completions, including empty `?` / `#`
     // markers that URL.search / URL.hash normalize to empty strings.
-    if (parsedBaseUrl.href.includes("?") || parsedBaseUrl.href.includes("#")) {
+    if (
+      parsedBaseUrl.href.includes("?") ||
+      parsedBaseUrl.href.includes("#")
+    ) {
       throw new Error(
         "OpenAI-compatible provider baseUrl must not include a query string or fragment."
       );
