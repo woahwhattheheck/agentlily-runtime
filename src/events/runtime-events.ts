@@ -94,12 +94,15 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 }
 
 function listenerErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (error !== null && (typeof error === "object" || typeof error === "function")) {
+  if (
+    error !== null &&
+    (typeof error === "object" || typeof error === "function")
+  ) {
     try {
+      if (error instanceof Error) {
+        return error.message;
+      }
+
       const message = (error as { message?: unknown }).message;
       if (typeof message === "string") {
         return message;
