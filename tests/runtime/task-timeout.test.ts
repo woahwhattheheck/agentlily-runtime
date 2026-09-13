@@ -75,7 +75,7 @@ describe("AgentRuntime task timeout", () => {
 
   it("reports a timed-out tool that never settles as stranded during stop", async () => {
     const eventBus = new RuntimeEventBus();
-    const stopped: Array<{ strandedTaskIds?: string[] }> = [];
+    const stopped: Array<{ strandedTaskIds: string[] | undefined }> = [];
 
     eventBus.on("runtime.stopped", (event) => {
       stopped.push({ strandedTaskIds: event.payload.strandedTaskIds });
