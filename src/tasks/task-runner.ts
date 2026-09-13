@@ -5,6 +5,8 @@ import type { MemoryStore } from "../memory/memory-store.js";
 import type { RuntimeContext } from "../runtime/context.js";
 import type { RuntimeTask, TaskExecutionResult } from "./task-types.js";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export class TaskRunner {
   private readonly actionExecutor: ActionExecutor;
   private readonly memoryStore: MemoryStore;
@@ -15,6 +17,17 @@ export class TaskRunner {
     memoryStore: MemoryStore,
     timeoutMs?: number
   ) {
+    if (
+      timeoutMs !== undefined &&
+      (!Number.isInteger(timeoutMs) ||
+        timeoutMs < 0 ||
+        timeoutMs > MAX_TIMER_DELAY_MS)
+    ) {
+      throw new RangeError(
+        `TaskRunner timeoutMs must be an integer between 0 and ${MAX_TIMER_DELAY_MS}.`
+      );
+    }
+
     this.actionExecutor = actionExecutor;
     this.memoryStore = memoryStore;
     this.timeoutMs = timeoutMs;
