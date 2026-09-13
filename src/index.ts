@@ -14,6 +14,12 @@ export {
   ActionExecutor,
   type ActionExecutorOptions
 } from "./actions/action-executor.js";
+export {
+  JsonlRuntimeAuditLedger,
+  RuntimeAuditLedgerError,
+  attachRuntimeAuditLedger,
+  verifyRuntimeAuditLedger
+} from "./audit/runtime-audit-ledger.js";
 export { RuntimeError } from "./errors/runtime-errors.js";
 export {
   RuntimeEventBus,
@@ -61,6 +67,14 @@ export type {
   PaymentPrepPayload,
   PaymentPrepResult
 } from "./actions/payment-prep-action.js";
+export type {
+  JsonlRuntimeAuditLedgerOptions,
+  RuntimeAuditLedgerErrorCode,
+  RuntimeAuditLedgerRecord,
+  RuntimeAuditLedgerStatus,
+  RuntimeAuditVerificationOptions,
+  RuntimeAuditVerificationResult
+} from "./audit/runtime-audit-ledger.js";
 export type { RuntimeErrorCode } from "./errors/runtime-errors.js";
 export type {
   RuntimeEvent,
