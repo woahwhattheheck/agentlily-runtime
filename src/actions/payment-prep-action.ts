@@ -185,7 +185,13 @@ function normalizeAssetIdentity(
   canonicalAssetIdentity: string;
 } {
   const assetCode = assetCodeValue ?? "XLM";
-  assertNonEmptyValue(assetCode, "assetCode");
+  if (typeof assetCode !== "string" || assetCode.trim().length === 0) {
+    throw new RuntimeError(
+      "INVALID_TASK",
+      "assetCode must be a non-empty string.",
+      { fieldName: "assetCode" }
+    );
+  }
 
   if (!STELLAR_ASSET_CODE_RE.test(assetCode)) {
     throw new RuntimeError(
@@ -212,7 +218,13 @@ function normalizeAssetIdentity(
     };
   }
 
-  assertNonEmptyValue(assetIssuer, "assetIssuer");
+  if (typeof assetIssuer !== "string" || assetIssuer.trim().length === 0) {
+    throw new RuntimeError(
+      "INVALID_TASK",
+      "assetIssuer must be a non-empty string for non-native assets.",
+      { fieldName: "assetIssuer" }
+    );
+  }
   if (!isValidStellarAccountId(assetIssuer)) {
     throw new RuntimeError(
       "INVALID_TASK",
