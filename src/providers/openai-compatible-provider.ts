@@ -5,9 +5,26 @@ import type {
 } from "./model-provider.js";
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const MANAGED_REQUEST_HEADERS = new Set(["authorization", "content-type"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function copyCustomHeaders(
+  headers: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (headers === undefined) {
+    return undefined;
+  }
+
+  const safeHeaders: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!MANAGED_REQUEST_HEADERS.has(name.toLowerCase())) {
+      safeHeaders[name] = value;
+    }
+  }
+  return safeHeaders;
 }
 
 export interface OpenAICompatibleProviderOptions {
@@ -66,7 +83,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     this.baseUrl = rawBaseUrl.trim().replace(/\/+$/, "");
     this.model = options.model?.trim() || "gpt-4o-mini";
     this.timeoutMs = options.timeoutMs;
-    this.customHeaders = options.headers;
+    this.customHeaders = copyCustomHeaders(options.headers);
   }
 
   public getBaseUrl(): string {
@@ -91,9 +108,9 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     const requestInit: RequestInit = {
       method: "POST",
       headers: {
+        ...(this.customHeaders ?? {}),
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-        ...(this.customHeaders ?? {})
+        Authorization: `Bearer ${this.apiKey}`
       },
       body: JSON.stringify(payload)
     };
