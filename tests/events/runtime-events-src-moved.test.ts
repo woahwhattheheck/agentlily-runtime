@@ -1,20 +1,20 @@
-import { describe, it, expect, vi } from "vitest";
-import { RuntimeEventBus } from "../../src/events/runtime-events.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  RuntimeEventBus,
+  RuntimeEventListenerLimitError
+} from "../../src/events/runtime-events.js";
 
 describe("RuntimeEventBus max listeners", () => {
-  it("warns when exceeding maxListenersPerEvent", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("rejects registrations that exceed a numeric maxListeners value", () => {
     const bus = new RuntimeEventBus(2);
 
     bus.on("runtime.started", () => {});
     bus.on("runtime.started", () => {});
-    bus.on("runtime.started", () => {});
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]![0]).toContain(
-      "max listener count (2) exceeded"
+    expect(() => bus.on("runtime.started", () => {})).toThrow(
+      RuntimeEventListenerLimitError
     );
-    warnSpy.mockRestore();
+    expect(bus.listenerCount("runtime.started")).toBe(2);
   });
 
   it("exposes listenerCount", () => {
@@ -29,15 +29,16 @@ describe("RuntimeEventBus max listeners", () => {
   });
 
   it("defaults to 100 max listeners", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const bus = new RuntimeEventBus();
 
-    for (let i = 0; i < 101; i++) {
+    for (let i = 0; i < 100; i++) {
       bus.on("runtime.started", () => {});
     }
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    warnSpy.mockRestore();
+    expect(() => bus.on("runtime.started", () => {})).toThrow(
+      RuntimeEventListenerLimitError
+    );
+    expect(bus.listenerCount("runtime.started")).toBe(100);
   });
 });
 
@@ -55,7 +56,6 @@ describe("RuntimeEventBus once() async rejection", () => {
       payload: { runtimeId: "r1", occurredAt: "2026-01-01T00:00:00Z" }
     });
 
-    // Wait for the promise to reject and be caught
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -65,7 +65,7 @@ describe("RuntimeEventBus once() async rejection", () => {
     );
   });
 
-  it("removes once listener after async callback completes", async () => {
+  it("removes once listener before an async callback settles", async () => {
     const bus = new RuntimeEventBus();
     let callCount = 0;
 
