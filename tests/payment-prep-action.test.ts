@@ -10,6 +10,9 @@ import {
 } from "../src/index.js";
 import type { PaymentPrepPayload, RuntimeContext } from "../src/index.js";
 
+const VALID_ASSET_ISSUER =
+  "GC2BKLYOOYPDEFJKLKY6FNNRQMGFLVHJKQRGNSSRRGSMPGF32LHCQVGF";
+
 describe("PaymentPrepAction", () => {
   const createMockContext = (taskId: string): RuntimeContext => ({
     runtimeId: "runtime-test",
@@ -38,6 +41,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
       assetCode: "USDC",
+      assetIssuer: VALID_ASSET_ISSUER,
       memo: "Invoice #1024",
       metadata: { priority: "high" }
     };
@@ -50,6 +54,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: payload.recipientId,
       assetCode: "USDC",
+      assetIssuer: VALID_ASSET_ISSUER,
       memo: "Invoice #1024",
       preparedAt: "2026-08-30T12:00:00.000Z",
       transactionStubId: expect.stringMatching(
@@ -83,7 +88,11 @@ describe("PaymentPrepAction", () => {
     const changedIntents: PaymentPrepPayload[] = [
       { ...base, amount: "2.0" },
       { ...base, recipientId: "GRECIPIENT2" },
-      { ...base, assetCode: "USDC" },
+      {
+        ...base,
+        assetCode: "USDC",
+        assetIssuer: VALID_ASSET_ISSUER
+      },
       { ...base, memo: "invoice-2" }
     ];
 
@@ -107,6 +116,7 @@ describe("PaymentPrepAction", () => {
 
     expect(result.amount).toBe("25");
     expect(result.assetCode).toBe("XLM");
+    expect(result.assetIssuer).toBeUndefined();
     expect(result.status).toBe("prepared");
     expect(result.isSimulated).toBe(true);
   });
