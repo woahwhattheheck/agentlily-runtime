@@ -196,6 +196,21 @@ export class ActionExecutor {
 
   private recordToolCall(taskId: string, count: number): void {
     if (!this.toolCallCounts.has(taskId)) {
+      if (
+        this.maxToolCallsPerTask !== undefined &&
+        this.toolCallCounts.size >= this.maxTrackedTasks
+      ) {
+        // A retained counter is authorization state when a per-task quota is
+        // configured. Evicting it would reset that task's apparent budget and
+        // let a later call bypass maxToolCallsPerTask. Fail closed before the
+        // new tool invocation; completed tasks release capacity via reset().
+        throw new RuntimeError(
+          "MAX_TOOL_CALLS_EXCEEDED",
+          "Cannot safely track another task without evicting an active tool-call budget.",
+          { taskId, maxTrackedTasks: this.maxTrackedTasks }
+        );
+      }
+
       while (this.toolCallCounts.size >= this.maxTrackedTasks) {
         const oldestTaskId = this.toolCallCounts.keys().next().value as
           | string
