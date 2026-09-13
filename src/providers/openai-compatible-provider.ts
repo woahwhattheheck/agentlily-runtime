@@ -5,7 +5,10 @@ import type {
 } from "./model-provider.js";
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024;
 const MANAGED_REQUEST_HEADERS = new Set(["authorization", "content-type"]);
+
+class ResponseBodyTooLargeError extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -25,6 +28,39 @@ function copyCustomHeaders(
     }
   }
   return safeHeaders;
+}
+
+async function readBoundedResponseText(response: Response): Promise<string> {
+  if (response.body === null) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return text + decoder.decode();
+      }
+      if (value === undefined) {
+        continue;
+      }
+
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new ResponseBodyTooLargeError();
+      }
+
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export interface OpenAICompatibleProviderOptions {
@@ -160,8 +196,13 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
 
     let responseText: string;
     try {
-      responseText = await response.text();
-    } catch {
+      responseText = await readBoundedResponseText(response);
+    } catch (error) {
+      if (error instanceof ResponseBodyTooLargeError) {
+        throw new Error(
+          `OpenAI-compatible provider response body exceeded ${MAX_RESPONSE_BODY_BYTES} bytes (HTTP ${response.status}).`
+        );
+      }
       // Body readers can surface transport- or adapter-specific diagnostics.
       // Expose the safe HTTP status, not the upstream exception object.
       throw new Error(
