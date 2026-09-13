@@ -60,16 +60,27 @@ function assertListMemoryOptions(options?: ListMemoryOptions): void {
 }
 
 const cloneOutput = (val: unknown): unknown => {
-  if (val === null || typeof val !== "object") {
+  const valueType = typeof val;
+  if (
+    val === null ||
+    (valueType !== "object" && valueType !== "function")
+  ) {
     return val;
   }
+
   try {
     return structuredClone(val);
   } catch {
     try {
-      return JSON.parse(JSON.stringify(val));
+      const serialized = JSON.stringify(val);
+      if (serialized === undefined) {
+        throw new TypeError("Memory output is not JSON-serializable.");
+      }
+      return JSON.parse(serialized);
     } catch {
-      return val;
+      throw new TypeError(
+        "Memory output must be structurally cloneable or JSON-serializable."
+      );
     }
   }
 };
