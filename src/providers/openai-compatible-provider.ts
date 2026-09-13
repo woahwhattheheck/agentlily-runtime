@@ -42,11 +42,29 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       throw new Error("OpenAI-compatible provider requires a valid baseUrl.");
     }
 
+    const normalizedBaseUrl = rawBaseUrl.trim();
+    let parsedBaseUrl: URL;
     try {
-      new URL(rawBaseUrl);
+      parsedBaseUrl = new URL(normalizedBaseUrl);
     } catch {
       throw new Error(
         `Invalid baseUrl provided to OpenAICompatibleModelProvider: "${rawBaseUrl}".`
+      );
+    }
+
+    if (parsedBaseUrl.protocol !== "http:" && parsedBaseUrl.protocol !== "https:") {
+      throw new Error(
+        "OpenAI-compatible provider baseUrl must use http or https."
+      );
+    }
+
+    // generate() appends a fixed path segment. Query strings and fragments on
+    // the configured base would capture that suffix as query/fragment text
+    // instead of routing to /chat/completions, including empty `?` / `#`
+    // markers that URL.search / URL.hash normalize to empty strings.
+    if (parsedBaseUrl.href.includes("?") || parsedBaseUrl.href.includes("#")) {
+      throw new Error(
+        "OpenAI-compatible provider baseUrl must not include a query string or fragment."
       );
     }
 
@@ -63,7 +81,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     }
 
     this.apiKey = options.apiKey.trim();
-    this.baseUrl = rawBaseUrl.trim().replace(/\/+$/, "");
+    this.baseUrl = normalizedBaseUrl.replace(/\/+$/, "");
     this.model = options.model?.trim() || "gpt-4o-mini";
     this.timeoutMs = options.timeoutMs;
     this.customHeaders = options.headers;
