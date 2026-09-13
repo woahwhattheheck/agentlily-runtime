@@ -29,7 +29,9 @@ describe("cycle-safe logger metadata", () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const logger = new ConsoleRuntimeLogger();
 
-    expect(() => logger.info("self cycle", selfReferentialMetadata())).not.toThrow();
+    expect(() =>
+      logger.info("self cycle", selfReferentialMetadata())
+    ).not.toThrow();
     expect(infoSpy.mock.calls[0]![1]).toEqual({
       name: "self",
       apiToken: "[REDACTED]",
@@ -42,7 +44,9 @@ describe("cycle-safe logger metadata", () => {
   it("redacts and stores mutual object cycles in InMemoryRuntimeLogger", () => {
     const logger = new InMemoryRuntimeLogger();
 
-    expect(() => logger.info("mutual cycle", mutuallyReferentialMetadata())).not.toThrow();
+    expect(() =>
+      logger.info("mutual cycle", mutuallyReferentialMetadata())
+    ).not.toThrow();
     expect(logger.entries[0]!.metadata).toEqual({
       name: "left",
       right: {
