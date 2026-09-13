@@ -168,6 +168,13 @@ export function createPaymentPrepTool(): ToolDefinition<
             { fieldName: "assetIssuer" }
           );
         }
+        if (assetCode === "XLM") {
+          throw new RuntimeError(
+            "INVALID_TASK",
+            "assetIssuer must be omitted for native XLM.",
+            { fieldName: "assetIssuer", assetCode }
+          );
+        }
       } else if (assetCode !== "XLM") {
         throw new RuntimeError(
           "INVALID_TASK",
