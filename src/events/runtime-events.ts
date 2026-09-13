@@ -93,6 +93,29 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
+function listenerErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error !== null && (typeof error === "object" || typeof error === "function")) {
+    try {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    } catch {
+      return "Unknown listener failure.";
+    }
+  }
+
+  try {
+    return String(error);
+  } catch {
+    return "Unknown listener failure.";
+  }
+}
+
 export class RuntimeEventBus {
   private readonly listeners = new Map<RuntimeEventName, Set<Listener>>();
   private readonly maxListeners: number;
@@ -251,8 +274,7 @@ export class RuntimeEventBus {
           name: "runtime.internal.error",
           payload: {
             eventName,
-            errorMessage:
-              error instanceof Error ? error.message : String(error),
+            errorMessage: listenerErrorMessage(error),
             occurredAt: new Date().toISOString()
           }
         });
