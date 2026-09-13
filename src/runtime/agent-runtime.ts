@@ -171,8 +171,9 @@ export class AgentRuntime {
   /**
    * Execute a task on the runtime.
    *
-   * Task IDs are unique only while active. A completed or failed task ID may be
-   * reused, but a concurrent duplicate is rejected before lifecycle side effects.
+   * Task IDs are unique while their underlying tool invocation is active. A
+   * completed or failed task ID may be reused after that invocation settles,
+   * but a concurrent duplicate is rejected before lifecycle side effects.
    */
   public async executeTask<TPayload, TResult>(
     task: RuntimeTask<TPayload>
@@ -273,12 +274,30 @@ export class AgentRuntime {
 
       throw error;
     } finally {
-      // Tool-call budgets are scoped to one task lifecycle. Completed and failed
-      // task IDs are explicitly reusable, so stale counts must not follow reuse.
-      this.dependencies.actionExecutor.reset(task.taskId);
-      this.inFlightTasks.delete(task.taskId);
-      this.inFlightPromises.delete(task.taskId);
-      resolveInFlight();
+      const releaseTask = (): void => {
+        // Tool-call budgets are scoped to one underlying tool lifecycle. In the
+        // timeout case, do not reset the budget or release the reusable task ID
+        // while the original side-effecting invocation is still running.
+        this.dependencies.actionExecutor.reset(task.taskId);
+
+        // Guard the deferred release so a terminal stop or future refactor cannot
+        // let an old settlement callback delete a different reservation.
+        if (this.inFlightPromises.get(task.taskId) === inFlightPromise) {
+          this.inFlightTasks.delete(task.taskId);
+          this.inFlightPromises.delete(task.taskId);
+          resolveInFlight();
+        }
+      };
+
+      const activeExecution =
+        this.dependencies.taskRunner.getActiveExecution(task.taskId);
+      if (activeExecution === undefined) {
+        releaseTask();
+      } else {
+        // A deadline can reject TaskRunner.run() before the tool promise settles.
+        // Preserve duplicate-task and shutdown-drain custody until it does.
+        void activeExecution.then(releaseTask);
+      }
     }
   }
 
