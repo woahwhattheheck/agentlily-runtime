@@ -14,9 +14,9 @@ Changing any bound field invalidates the grant. A matching approval is consumed 
 
 ## Trust boundary
 
-`approve()` is an authority-bearing operation. Only trusted operator or control-plane code should receive access to the approval store's mutation methods. Do not expose an `InMemoryToolApprovalStore` instance, its `approve()` method, or an equivalent durable store writer to an untrusted agent or tool.
+`approve()` is an authority-bearing operation. Only trusted operator or control-plane code should receive access to the approval store's mutation methods. Do not expose an approval store instance, its `approve()` method, or a durable store writer/file to an untrusted agent or tool.
 
-`InMemoryToolApprovalStore` is permanently scoped to one `runtimeId` at construction. That namespace is copied into every approval record. `ToolApprovalPolicy` supplies the live `RuntimeContext.runtimeId` on every protected consumption attempt, so reusing one store from a different runtime fails closed without consuming the grant.
+Both shipped stores are permanently scoped to one `runtimeId` at construction. That namespace is copied into every approval record. `ToolApprovalPolicy` supplies the live `RuntimeContext.runtimeId` on every protected consumption attempt, so reusing a store from a different runtime fails closed without consuming the grant.
 
 Approval records retain the payload digest, not a copy of the payload. They therefore provide invocation binding without turning the approval ledger into a second payload store.
 
@@ -129,9 +129,29 @@ Normalize application-specific payloads into plain data before requesting approv
 
 ## Durability and concurrency
 
-`InMemoryToolApprovalStore` provides atomic one-time consumption inside one JavaScript process and binds that authority to one runtime namespace. It intentionally does **not** claim restart durability or cross-process atomicity.
+Choose the store according to the authority lifetime you need:
 
-Production systems that need durable or distributed approval authority should implement `ToolApprovalStore` with storage that provides atomic compare-and-consume semantics. `ToolApprovalConsumeRequest.runtimeId` is required on that interface; a durable implementation must persist and compare runtime identity with the same authority as task, agent, tool, and payload identity. The policy consumes through that interface, so the execution boundary does not need to change when the backing authority becomes durable.
+- `InMemoryToolApprovalStore` provides atomic one-time consumption inside one JavaScript process. It is appropriate for ephemeral development and tests and intentionally does **not** survive restart or coordinate separate processes.
+- `JsonFileToolApprovalStore` persists the runtime-bound approval ledger to one local filesystem and serializes authority-bearing operations across cooperating Node.js processes. It supports durable `approve()`, `revoke()`, `get()`, and one-time `consume()` with atomic publication.
+
+The durable store validates the complete versioned JSON envelope before every operation. Unknown fields, malformed canonical timestamps, invalid payload digests, duplicate approval IDs, mixed runtime identities, unsupported schema versions, and invalid JSON fail closed as `STORAGE_CORRUPTED`.
+
+Mutations use an adjacent atomic create-if-absent lock directory plus a unique temporary file and atomic rename. A crash can strand the lock directory; the store deliberately does not guess that it is stale or break it automatically. Later operations time out with `STORAGE_LOCKED` so an operator can reconcile whether an authority-bearing transition completed.
+
+Current time for grant creation and consumption is sampled **inside** the serialized critical section. Waiting on another process cannot accidentally extend an approval window past its expiry boundary.
+
+Example durable construction:
+
+```ts
+import { JsonFileToolApprovalStore } from "@lily-protocol/agentlily-runtime";
+
+const approvals = new JsonFileToolApprovalStore(
+  "./data/tool-approvals.json",
+  { runtimeId: "treasury-runtime" }
+);
+```
+
+The durable store is local-filesystem coordination, not a distributed consensus service. Do not place its authority file on a backend whose create/rename semantics do not provide the required local atomicity. The file path and mutation methods are authority-bearing and must remain outside untrusted model/tool surfaces.
 
 ## What this does not authorize
 
