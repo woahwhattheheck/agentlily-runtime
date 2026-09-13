@@ -216,10 +216,7 @@ import {
 
 const eventBus = new RuntimeEventBus();
 
-eventBus.on("runtime.started", (event) => {
-  console.log(`Runtime started at ${event.payload.occurredAt}`);
-});
-
+// Subscribe to task completion and failure events
 const unsubscribeCompleted = eventBus.on("runtime.task.completed", (event) => {
   console.log(
     `Task ${event.payload.taskId} completed in ${event.payload.durationMs}ms`
@@ -228,6 +225,11 @@ const unsubscribeCompleted = eventBus.on("runtime.task.completed", (event) => {
 
 const unsubscribeFailed = eventBus.on("runtime.task.failed", (event) => {
   console.error(`Task ${event.payload.taskId} failed: ${event.payload.reason}`);
+});
+
+// Single-fire listener
+eventBus.once("runtime.started", (event) => {
+  console.log(`Runtime started at ${event.payload.occurredAt}`);
 });
 
 const runtime = new AgentRuntime({
