@@ -95,13 +95,16 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
     errorSpy.mockRestore();
   });
 
-  it("falls back safely when a thrown value has hostile message accessors", () => {
+  it("contains hostile proxy prototype and message probes", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const bus = new RuntimeEventBus();
     const internalErrors: string[] = [];
     const hostile = new Proxy(
       {},
       {
+        getPrototypeOf() {
+          throw new Error("prototype trap");
+        },
         get(_target, property) {
           if (
             property === "message" ||
@@ -120,6 +123,31 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
     });
     bus.on("runtime.started", () => {
       throw hostile;
+    });
+
+    expect(() => bus.emit(startedEvent("rt-hostile-proxy"))).not.toThrow();
+    expect(internalErrors).toEqual(["Unknown listener failure."]);
+
+    errorSpy.mockRestore();
+  });
+
+  it("contains hostile message access on a same-realm Error", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bus = new RuntimeEventBus();
+    const internalErrors: string[] = [];
+    const hostileError = new Error("initial message");
+
+    Object.defineProperty(hostileError, "message", {
+      get() {
+        throw new Error("message trap");
+      }
+    });
+
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => {
+      throw hostileError;
     });
 
     expect(() => bus.emit(startedEvent("rt-hostile-error"))).not.toThrow();
