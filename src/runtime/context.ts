@@ -11,4 +11,10 @@ export interface RuntimeContext {
   modelProvider: ModelProvider;
   state: RuntimeStateStore;
   now: string;
+  /**
+   * Cooperative cancellation for the current task. This is provided when the
+   * runtime has a configured task timeout so tools can stop pending work before
+   * committing a late side effect after the caller has received a timeout.
+   */
+  abortSignal?: AbortSignal;
 }
