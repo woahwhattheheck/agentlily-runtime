@@ -124,7 +124,14 @@ export type { OpenAICompatibleProviderOptions } from "./providers/openai-compati
 export type { RuntimeStateStore } from "./state/runtime-state.js";
 export type {
   TaskClaimRecord,
+  TaskClaimSnapshot,
   TaskClaimStore
 } from "./tasks/task-claim-store.js";
+export type {
+  TaskOutcomeReconciliationAuthority,
+  TaskOutcomeReconciliationDecision,
+  TaskOutcomeReconciliationReceipt,
+  TaskOutcomeReconciliationRequest
+} from "./tasks/task-outcome-reconciliation.js";
 export type { RuntimeTask, TaskExecutionResult } from "./tasks/task-types.js";
 export type { ToolDefinition, ToolInvocation } from "./tools/types.js";

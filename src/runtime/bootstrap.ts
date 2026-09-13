@@ -84,7 +84,8 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     actionExecutor,
     memoryStore,
     options.maxTaskDurationMs,
-    taskClaimStore
+    taskClaimStore,
+    options.taskOutcomeReconciliationAuthority
   );
 
   return {

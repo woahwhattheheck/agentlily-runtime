@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -7,6 +8,16 @@ import { RuntimeError } from "../errors/runtime-errors.js";
 export interface TaskClaimRecord {
   taskId: string;
   claimedAt: string;
+  /**
+   * Opaque generation identity for claims created by current runtimes.
+   * Legacy durable records may omit this field and remain fail-closed for
+   * reconciliation while retaining their ordinary duplicate-execution fence.
+   */
+  claimId?: string;
+}
+
+export interface TaskClaimSnapshot extends TaskClaimRecord {
+  claimId: string;
 }
 
 /**
@@ -14,21 +25,31 @@ export interface TaskClaimRecord {
  *
  * `claim()` must make the claim visible before it resolves `true`. A `false`
  * result means the ID is already claimed and must not execute again.
+ *
+ * The optional generation APIs are the stronger reconciliation boundary. A
+ * custom store that does not implement them can still fence execution, but the
+ * runtime will refuse automatic unknown-outcome release through that store.
  */
 export interface TaskClaimStore {
   claim(taskId: string): Promise<boolean>;
   release(taskId: string): Promise<void>;
   has(taskId: string): Promise<boolean>;
+  inspect?(taskId: string): Promise<TaskClaimSnapshot | undefined>;
+  releaseIfMatches?(claim: TaskClaimSnapshot): Promise<boolean>;
 }
 
 export class InMemoryTaskClaimStore implements TaskClaimStore {
-  private readonly claims = new Set<string>();
+  private readonly claims = new Map<string, TaskClaimSnapshot>();
 
   public async claim(taskId: string): Promise<boolean> {
     if (this.claims.has(taskId)) {
       return false;
     }
-    this.claims.add(taskId);
+    this.claims.set(taskId, {
+      taskId,
+      claimedAt: new Date().toISOString(),
+      claimId: randomUUID()
+    });
     return true;
   }
 
@@ -38,6 +59,20 @@ export class InMemoryTaskClaimStore implements TaskClaimStore {
 
   public async has(taskId: string): Promise<boolean> {
     return this.claims.has(taskId);
+  }
+
+  public async inspect(taskId: string): Promise<TaskClaimSnapshot | undefined> {
+    const claim = this.claims.get(taskId);
+    return claim === undefined ? undefined : { ...claim };
+  }
+
+  public async releaseIfMatches(claim: TaskClaimSnapshot): Promise<boolean> {
+    const current = this.claims.get(claim.taskId);
+    if (current?.claimId !== claim.claimId) {
+      return false;
+    }
+    this.claims.delete(claim.taskId);
+    return true;
   }
 }
 
@@ -158,9 +193,23 @@ const isTaskClaimRecord = (value: unknown): value is TaskClaimRecord => {
   return (
     typeof candidate.taskId === "string" &&
     candidate.taskId.length > 0 &&
-    typeof candidate.claimedAt === "string"
+    typeof candidate.claimedAt === "string" &&
+    candidate.claimedAt.length > 0 &&
+    (candidate.claimId === undefined ||
+      (typeof candidate.claimId === "string" && candidate.claimId.length > 0))
   );
 };
+
+const asSnapshot = (
+  claim: TaskClaimRecord | undefined
+): TaskClaimSnapshot | undefined =>
+  claim !== undefined && typeof claim.claimId === "string"
+    ? {
+        taskId: claim.taskId,
+        claimedAt: claim.claimedAt,
+        claimId: claim.claimId
+      }
+    : undefined;
 
 /**
  * File-backed task claim authority.
@@ -212,7 +261,11 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
           return false;
         }
 
-        claims.push({ taskId, claimedAt: new Date().toISOString() });
+        claims.push({
+          taskId,
+          claimedAt: new Date().toISOString(),
+          claimId: randomUUID()
+        });
         await this.flushAtomic(claims);
         return true;
       }
@@ -243,6 +296,43 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
       async () => {
         const claims = await this.loadClaims();
         return claims.some((claim) => claim.taskId === taskId);
+      }
+    );
+  }
+
+  public async inspect(
+    taskId: string
+  ): Promise<TaskClaimSnapshot | undefined> {
+    return serializeFileOperation(
+      this.filePath,
+      this.lockTimeoutMs,
+      this.lockRetryDelayMs,
+      async () => {
+        const claims = await this.loadClaims();
+        return asSnapshot(claims.find((claim) => claim.taskId === taskId));
+      }
+    );
+  }
+
+  public async releaseIfMatches(claim: TaskClaimSnapshot): Promise<boolean> {
+    return serializeFileOperation(
+      this.filePath,
+      this.lockTimeoutMs,
+      this.lockRetryDelayMs,
+      async () => {
+        const claims = await this.loadClaims();
+        const index = claims.findIndex(
+          (candidate) =>
+            candidate.taskId === claim.taskId &&
+            candidate.claimId === claim.claimId
+        );
+        if (index === -1) {
+          return false;
+        }
+
+        claims.splice(index, 1);
+        await this.flushAtomic(claims);
+        return true;
       }
     );
   }

@@ -29,6 +29,16 @@ export interface RuntimeEventMap {
     agentId: string;
     reason: string;
   };
+  "runtime.task.reconciled": {
+    runtimeId: string;
+    taskId: string;
+    claimId: string;
+    claimedAt: string;
+    reconciledAt: string;
+    authorityReference: string;
+    evidenceSha256: string;
+    releasedForRetry: true;
+  };
   "runtime.tool.invoked": {
     runtimeId: string;
     taskId: string;
