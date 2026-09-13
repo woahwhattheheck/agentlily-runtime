@@ -37,7 +37,11 @@ export {
   ToolApprovalPolicy,
   digestToolApprovalPayload
 } from "./policies/tool-approval-policy.js";
-export { ToolAllowlistPolicy } from "./policies/tool-policy.js";
+export {
+  AllOfToolPolicy,
+  ToolAllowlistPolicy
+} from "./policies/tool-policy.js";
+export { StellarPaymentIntentPolicy } from "./policies/payment-intent-policy.js";
 export { UnconfiguredModelProvider } from "./providers/model-provider.js";
 export { OpenAICompatibleModelProvider } from "./providers/openai-compatible-provider.js";
 export { InMemoryRuntimeStateStore } from "./state/runtime-state.js";
@@ -87,6 +91,11 @@ export type {
   ToolApprovalRecord,
   ToolApprovalStore
 } from "./policies/tool-approval-policy.js";
+export type {
+  StellarPaymentAssetPolicy,
+  StellarPaymentIntentPolicyOptions,
+  StellarPaymentWalletPolicy
+} from "./policies/payment-intent-policy.js";
 export type {
   ToolPolicy,
   ToolPolicyDecision,
