@@ -76,6 +76,21 @@ describe("PaymentPrepAction", () => {
     expect(result.isSimulated).toBe(true);
   });
 
+  it("normalizes the smallest numeric Stellar unit out of exponent notation", async () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-pay-smallest-unit");
+
+    const result = await tool.execute({
+      payload: {
+        walletId: "GWALLET123",
+        amount: 1e-7
+      },
+      context
+    });
+
+    expect(result.amount).toBe("0.0000001");
+  });
+
   it("rejects empty walletId", async () => {
     const tool = createPaymentPrepTool();
     const context = createMockContext("task-pay-3");
@@ -185,8 +200,54 @@ describe("PaymentPrepAction", () => {
     }
   );
 
-  it.each(["10.5", 10, "0.01"])(
-    "accepts finite positive amount %s",
+  it.each(["0x10", "0b10", "0o10", "1e2", "1.00000001", " 10 "])(
+    "rejects non-Stellar decimal syntax %s",
+    (amount) => {
+      const tool = createPaymentPrepTool();
+      const context = createMockContext(`task-invalid-decimal-${amount}`);
+
+      expect(() =>
+        tool.execute({
+          payload: {
+            walletId: "GWALLET123",
+            amount
+          },
+          context
+        })
+      ).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_TASK",
+          details: { amount }
+        })
+      );
+    }
+  );
+
+  it.each(["922337203685.4775808", "999999999999999999999999999"])(
+    "rejects Stellar amount overflow %s",
+    (amount) => {
+      const tool = createPaymentPrepTool();
+      const context = createMockContext(`task-overflow-${amount}`);
+
+      expect(() =>
+        tool.execute({
+          payload: {
+            walletId: "GWALLET123",
+            amount
+          },
+          context
+        })
+      ).toThrowError(
+        expect.objectContaining({
+          code: "INVALID_TASK",
+          details: { amount }
+        })
+      );
+    }
+  );
+
+  it.each(["10.5", 10, "0.01", "0.0000001", "922337203685.4775807"])(
+    "accepts finite positive Stellar amount %s",
     async (amount) => {
       const tool = createPaymentPrepTool();
       const context = createMockContext(`task-finite-${amount}`);
