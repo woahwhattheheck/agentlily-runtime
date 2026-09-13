@@ -196,7 +196,7 @@ describe("OpenAICompatibleModelProvider", () => {
     expect(calledInit.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("handles non-2xx HTTP responses with descriptive error", async () => {
+  it("handles non-2xx HTTP responses with sanitized status context", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ error: "Invalid API key" }), {
         status: 401,
@@ -210,9 +210,7 @@ describe("OpenAICompatibleModelProvider", () => {
 
     await expect(
       provider.generate({ instructions: "test", input: "test" })
-    ).rejects.toThrowError(
-      'OpenAI-compatible provider returned HTTP 401: {"error":"Invalid API key"}'
-    );
+    ).rejects.toThrowError("OpenAI-compatible provider returned HTTP 401.");
   });
 
   it("handles malformed non-JSON response body with descriptive error", async () => {
@@ -232,7 +230,7 @@ describe("OpenAICompatibleModelProvider", () => {
     ).rejects.toThrowError();
   });
 
-  it("handles network failure gracefully", async () => {
+  it("handles network failure without exposing transport diagnostics", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
       new Error("ECONNREFUSED")
     );
@@ -243,9 +241,7 @@ describe("OpenAICompatibleModelProvider", () => {
 
     await expect(
       provider.generate({ instructions: "test", input: "test" })
-    ).rejects.toThrowError(
-      "OpenAI-compatible provider request failed: ECONNREFUSED"
-    );
+    ).rejects.toThrowError("OpenAI-compatible provider request failed.");
   });
 
   it.each([null, [], {}, { choices: null }, { choices: {} }, { choices: [] }])(
@@ -310,7 +306,7 @@ describe("OpenAICompatibleModelProvider", () => {
     });
   });
 
-  it("wraps malformed JSON with HTTP context and a bounded body excerpt", async () => {
+  it("sanitizes malformed JSON diagnostics", async () => {
     const body =
       "<html>upstream error</html>\n" + "x".repeat(300) + "AFTER_LIMIT";
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -324,25 +320,27 @@ describe("OpenAICompatibleModelProvider", () => {
 
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(
-      `OpenAI-compatible provider returned invalid JSON (HTTP 200): ${JSON.stringify(body.slice(0, 200))}...`
+      "OpenAI-compatible provider returned invalid JSON (HTTP 200)."
     );
     expect((failure as Error).message).not.toContain("AFTER_LIMIT");
-    expect((failure as Error).cause).toBeInstanceOf(SyntaxError);
+    expect("cause" in (failure as Error & { cause?: unknown })).toBe(false);
   });
 
-  it("preserves HTTP context when reading the successful response body fails", async () => {
+  it("sanitizes successful-response body-reader failures", async () => {
     const bodyFailure = new Error("connection closed during response");
     const response = new Response("", { status: 200 });
     vi.spyOn(response, "text").mockRejectedValueOnce(bodyFailure);
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(response);
     const provider = new OpenAICompatibleModelProvider({ apiKey: "test-key" });
 
-    await expect(
-      provider.generate({ instructions: "test", input: "test" })
-    ).rejects.toMatchObject({
-      message:
-        "OpenAI-compatible provider could not read HTTP 200 response body.",
-      cause: bodyFailure
-    });
+    const failure = await provider
+      .generate({ instructions: "test", input: "test" })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "OpenAI-compatible provider could not read HTTP 200 response body."
+    );
+    expect("cause" in (failure as Error & { cause?: unknown })).toBe(false);
   });
 });
