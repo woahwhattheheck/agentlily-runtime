@@ -162,9 +162,9 @@ export interface InMemoryLogEntry {
 
 export class InMemoryRuntimeLogger implements RuntimeLogger {
   public readonly entries: InMemoryLogEntry[] = [];
-  public readonly level?: RuntimeLogLevel;
+  public readonly level: RuntimeLogLevel;
   private readonly maxEntries: number;
-  private readonly minimumLevel: RuntimeLogLevel | undefined;
+  private readonly minimumLevel: RuntimeLogLevel;
   private readonly redactKeys: RegExp;
 
   public constructor(options: InMemoryRuntimeLoggerOptions = {}) {
@@ -174,7 +174,8 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
     }
 
     this.maxEntries = maxEntries;
-    this.minimumLevel = options.level;
+    this.level = options.level ?? "debug";
+    this.minimumLevel = this.level;
     this.redactKeys = options.redactKeys ?? DEFAULT_REDACT_KEYS;
   }
 
@@ -211,9 +212,6 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
   }
 
   private shouldLog(level: RuntimeLogLevel): boolean {
-    if (this.minimumLevel === undefined) {
-      return true;
-    }
     return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.minimumLevel];
   }
 
