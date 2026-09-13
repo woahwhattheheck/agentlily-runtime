@@ -128,37 +128,31 @@ export class ActionExecutor {
       return;
     }
 
-    let decision: Awaited<ReturnType<ToolPolicy["evaluate"]>>;
+    let reason = `Tool "${toolName}" is denied by runtime policy.`;
     try {
-      decision = await this.toolPolicy.evaluate({ toolName, payload, context });
+      const decision = await this.toolPolicy.evaluate({ toolName, payload, context });
+
+      if (decision === true) {
+        return;
+      }
+      if (typeof decision === "object" && decision !== null) {
+        if (decision.allowed === true) {
+          return;
+        }
+        if (typeof decision.reason === "string") {
+          reason = decision.reason;
+        }
+      }
     } catch {
-      // A policy backend may throw credential-bearing or provider-specific
-      // diagnostics. Fail closed without copying that exception into public
-      // runtime errors, audit events, or ordinary logs.
+      // A policy backend may throw while evaluating or while exposing a
+      // decision through accessors/proxies. Fail closed without copying that
+      // diagnostic into public runtime errors, audit events, or ordinary logs.
       this.denyTool(
         toolName,
         context,
         `Tool "${toolName}" denied because policy evaluation failed.`
       );
     }
-
-    if (decision === true) {
-      return;
-    }
-    if (
-      typeof decision === "object" &&
-      decision !== null &&
-      decision.allowed === true
-    ) {
-      return;
-    }
-
-    const reason =
-      typeof decision === "object" &&
-      decision !== null &&
-      typeof decision.reason === "string"
-        ? decision.reason
-        : `Tool "${toolName}" is denied by runtime policy.`;
 
     this.denyTool(toolName, context, reason);
   }

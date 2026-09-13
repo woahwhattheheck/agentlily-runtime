@@ -201,6 +201,61 @@ describe("runtime tool policies", () => {
     expect(denied).toHaveBeenCalledTimes(1);
   });
 
+  it("fails closed without leaking throwing decision accessors", async () => {
+    for (const accessor of ["allowed", "reason"] as const) {
+      const registry = new ToolRegistry();
+      const execute = vi.fn(() => "unsafe");
+      registry.register({
+        name: "guarded",
+        description: "Tool behind a hostile policy decision",
+        execute
+      });
+
+      const eventBus = new RuntimeEventBus();
+      const denied = vi.fn();
+      eventBus.on("runtime.tool.denied", denied);
+
+      const sentinel = `sk-live-decision-${accessor}-SENTINEL`;
+      const decision = {
+        allowed: false,
+        reason: "explicit denial should not be reached"
+      };
+      Object.defineProperty(decision, accessor, {
+        configurable: true,
+        get() {
+          throw new Error(`decision accessor leaked ${sentinel}`);
+        }
+      });
+      const policy: ToolPolicy = { evaluate: () => decision };
+      const executor = createExecutor(registry, policy, eventBus);
+      const taskId = `${accessor}-accessor-task`;
+
+      let rejection: unknown;
+      try {
+        await executor.execute("guarded", {}, createMockContext(taskId));
+      } catch (error) {
+        rejection = error;
+      }
+
+      expect(rejection).toMatchObject({
+        name: "RuntimeError",
+        code: "TOOL_POLICY_DENIED",
+        details: {
+          toolName: "guarded",
+          taskId,
+          reason: 'Tool "guarded" denied because policy evaluation failed.'
+        }
+      });
+      expect(
+        JSON.stringify((rejection as { toJSON(): unknown }).toJSON())
+      ).not.toContain(sentinel);
+      expect(JSON.stringify(denied.mock.calls[0]![0])).not.toContain(sentinel);
+      expect(execute).not.toHaveBeenCalled();
+      expect(executor.getToolCallCount(taskId)).toBe(0);
+      expect(denied).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("keeps TOOL_NOT_FOUND precedence and does not evaluate policy", async () => {
     const registry = new ToolRegistry();
     const evaluate = vi.fn(() => true);
