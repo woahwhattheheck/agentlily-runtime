@@ -13,6 +13,14 @@ export class ToolRegistry {
       );
     }
 
+    if (tool.name !== tool.name.trim()) {
+      throw new RuntimeError(
+        "INVALID_TASK",
+        "tool.name must not have leading or trailing whitespace.",
+        { fieldName: "tool.name" }
+      );
+    }
+
     if (this.tools.has(tool.name)) {
       throw new RuntimeError(
         "DUPLICATE_TOOL",
