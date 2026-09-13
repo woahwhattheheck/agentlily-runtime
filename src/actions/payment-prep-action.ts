@@ -89,6 +89,8 @@ export function createPaymentPrepTool(): ToolDefinition<
       context
     }: ToolInvocation<PaymentPrepPayload>): PaymentPrepResult {
       assertNonEmptyValue(payload.walletId, "walletId");
+      const assetCode = payload.assetCode ?? "XLM";
+      assertNonEmptyValue(assetCode, "assetCode");
 
       const amount = payload.amount as unknown;
       if (
@@ -119,7 +121,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         walletId: payload.walletId,
         amount: amountStr,
         recipientId: payload.recipientId,
-        assetCode: payload.assetCode ?? "XLM",
+        assetCode,
         memo: payload.memo,
         preparedAt,
         transactionStubId,
