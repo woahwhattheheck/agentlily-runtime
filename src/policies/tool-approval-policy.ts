@@ -71,7 +71,7 @@ function parseCanonicalInstant(label: string, value: string): number {
   return millis;
 }
 
-function canonicalizePayload(value: unknown, seen: Set<object>): string {
+function canonicalizePayload(value: unknown, visited: Set<object>): string {
   if (value === null) {
     return "null";
   }
@@ -98,72 +98,35 @@ function canonicalizePayload(value: unknown, seen: Set<object>): string {
       );
   }
 
-  if (seen.has(value)) {
-    throw new TypeError("Approval payload must not contain cycles.");
+  if (visited.has(value)) {
+    throw new TypeError(
+      "Approval payload must be an acyclic tree without shared references."
+    );
   }
-  seen.add(value);
+  visited.add(value);
 
-  try {
-    if (Array.isArray(value)) {
-      const ownKeys = Reflect.ownKeys(value);
-      for (const key of ownKeys) {
-        if (typeof key === "symbol") {
-          throw new TypeError("Approval payload arrays must not contain symbol keys.");
-        }
-        if (key === "length") {
-          continue;
-        }
-        const index = Number(key);
-        if (
-          !Number.isSafeInteger(index) ||
-          index < 0 ||
-          String(index) !== key ||
-          index >= value.length
-        ) {
-          throw new TypeError(
-            "Approval payload arrays must not contain non-index properties."
-          );
-        }
-        const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (
-          descriptor === undefined ||
-          descriptor.enumerable !== true ||
-          !("value" in descriptor)
-        ) {
-          throw new TypeError(
-            "Approval payload arrays must contain enumerable data properties only."
-          );
-        }
-      }
-
-      const parts: string[] = [];
-      for (let index = 0; index < value.length; index++) {
-        if (!Object.prototype.hasOwnProperty.call(value, index)) {
-          throw new TypeError("Approval payload arrays must not contain holes.");
-        }
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (descriptor === undefined || !("value" in descriptor)) {
-          throw new TypeError("Approval payload arrays must contain data values only.");
-        }
-        parts.push(canonicalizePayload(descriptor.value, seen));
-      }
-      return `a:[${parts.join(",")}]`;
-    }
-
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      throw new TypeError("Approval payload objects must be plain objects.");
-    }
-
+  if (Array.isArray(value)) {
     const ownKeys = Reflect.ownKeys(value);
-    if (ownKeys.some((key) => typeof key === "symbol")) {
-      throw new TypeError("Approval payload objects must not contain symbol keys.");
-    }
-
-    const stringKeys = ownKeys as string[];
-    stringKeys.sort();
-    const parts: string[] = [];
-    for (const key of stringKeys) {
+    for (const key of ownKeys) {
+      if (typeof key === "symbol") {
+        throw new TypeError(
+          "Approval payload arrays must not contain symbol keys."
+        );
+      }
+      if (key === "length") {
+        continue;
+      }
+      const index = Number(key);
+      if (
+        !Number.isSafeInteger(index) ||
+        index < 0 ||
+        String(index) !== key ||
+        index >= value.length
+      ) {
+        throw new TypeError(
+          "Approval payload arrays must not contain non-index properties."
+        );
+      }
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (
         descriptor === undefined ||
@@ -171,17 +134,58 @@ function canonicalizePayload(value: unknown, seen: Set<object>): string {
         !("value" in descriptor)
       ) {
         throw new TypeError(
-          "Approval payload objects must contain enumerable data properties only."
+          "Approval payload arrays must contain enumerable data properties only."
         );
       }
-      parts.push(
-        `${JSON.stringify(key)}:${canonicalizePayload(descriptor.value, seen)}`
+    }
+
+    const parts: string[] = [];
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.prototype.hasOwnProperty.call(value, index)) {
+        throw new TypeError("Approval payload arrays must not contain holes.");
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !("value" in descriptor)) {
+        throw new TypeError(
+          "Approval payload arrays must contain data values only."
+        );
+      }
+      parts.push(canonicalizePayload(descriptor.value, visited));
+    }
+    return `a:[${parts.join(",")}]`;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("Approval payload objects must be plain objects.");
+  }
+
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.some((key) => typeof key === "symbol")) {
+    throw new TypeError(
+      "Approval payload objects must not contain symbol keys."
+    );
+  }
+
+  const stringKeys = ownKeys as string[];
+  stringKeys.sort();
+  const parts: string[] = [];
+  for (const key of stringKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      throw new TypeError(
+        "Approval payload objects must contain enumerable data properties only."
       );
     }
-    return `o:{${parts.join(",")}}`;
-  } finally {
-    seen.delete(value);
+    parts.push(
+      `${JSON.stringify(key)}:${canonicalizePayload(descriptor.value, visited)}`
+    );
   }
+  return `o:{${parts.join(",")}}`;
 }
 
 /**
@@ -232,7 +236,10 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
     const grantedAt = now.toISOString();
     let expiresAt: string | undefined;
     if (request.expiresAt !== undefined) {
-      const expiresAtMillis = parseCanonicalInstant("expiresAt", request.expiresAt);
+      const expiresAtMillis = parseCanonicalInstant(
+        "expiresAt",
+        request.expiresAt
+      );
       if (expiresAtMillis <= now.getTime()) {
         throw new RangeError("expiresAt must be later than the grant instant.");
       }
@@ -275,19 +282,30 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
     return record === undefined ? undefined : cloneRecord(record);
   }
 
-  public consume(request: ToolApprovalConsumeRequest): ToolApprovalConsumeDecision {
+  public consume(
+    request: ToolApprovalConsumeRequest
+  ): ToolApprovalConsumeDecision {
     let payloadDigest: string;
     try {
       payloadDigest = digestToolApprovalPayload(request.payload);
     } catch {
       return {
         approved: false,
-        reason: "Tool payload cannot be deterministically bound to a human approval."
+        reason:
+          "Tool payload cannot be deterministically bound to a human approval."
       };
     }
 
     const now = this.now();
     const nowMillis = now.getTime();
+    if (!Number.isFinite(nowMillis)) {
+      return {
+        approved: false,
+        reason: "Human approval authority could not establish a valid current time."
+      };
+    }
+    const consumedAt = now.toISOString();
+
     for (const [approvalId, record] of this.approvals) {
       if (
         record.taskId !== request.taskId ||
@@ -309,7 +327,7 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
 
       const consumed: ToolApprovalRecord = {
         ...record,
-        consumedAt: now.toISOString()
+        consumedAt
       };
       this.approvals.set(approvalId, consumed);
       return { approved: true, approval: cloneRecord(consumed) };
@@ -323,10 +341,12 @@ export class InMemoryToolApprovalStore implements ToolApprovalStore {
 }
 
 function decisionAllows(decision: boolean | ToolPolicyDecision): boolean {
-  return decision === true ||
+  return (
+    decision === true ||
     (typeof decision === "object" &&
       decision !== null &&
-      decision.allowed === true);
+      decision.allowed === true)
+  );
 }
 
 function resolveAgentId(request: ToolPolicyRequest): string {
