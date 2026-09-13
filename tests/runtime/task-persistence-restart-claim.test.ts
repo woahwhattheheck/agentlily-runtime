@@ -1,6 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentRuntime,
@@ -111,6 +111,79 @@ describe("durable task claims", () => {
       await restarted.release("task-1");
       expect(await first.has("task-1")).toBe(false);
       expect(await first.claim("task-1")).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("admits exactly one concurrent same-ID claim across store instances", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "agentlily-claim-race-"));
+    const claimPath = join(dir, "claims.json");
+
+    try {
+      const stores = Array.from(
+        { length: 8 },
+        () => new JsonFileTaskClaimStore(claimPath)
+      );
+      const results = await Promise.all(
+        stores.map((store) => store.claim("shared-payment"))
+      );
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect(await stores[0]?.has("shared-payment")).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when another process owns the claim-store lock", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "agentlily-claim-locked-"));
+    const claimPath = join(dir, "claims.json");
+    const lockPath = `${resolve(claimPath)}.lock`;
+
+    try {
+      await mkdir(lockPath);
+      const store = new JsonFileTaskClaimStore(claimPath, {
+        lockTimeoutMs: 20,
+        lockRetryDelayMs: 2
+      });
+
+      await expect(store.claim("payment-locked")).rejects.toMatchObject({
+        code: "STORAGE_LOCKED",
+        details: {
+          filePath: claimPath,
+          lockPath,
+          timeoutMs: 20
+        }
+      });
+
+      // A contender must never remove a lock it did not acquire.
+      await expect(mkdir(lockPath)).rejects.toMatchObject({ code: "EEXIST" });
+
+      await rm(lockPath, { recursive: true, force: true });
+      expect(await store.claim("payment-locked")).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("releases its lock after corrupted storage fails an operation", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "agentlily-claim-corrupt-"));
+    const claimPath = join(dir, "claims.json");
+
+    try {
+      await writeFile(claimPath, "{not-json", "utf-8");
+      const store = new JsonFileTaskClaimStore(claimPath, {
+        lockTimeoutMs: 50,
+        lockRetryDelayMs: 2
+      });
+
+      await expect(store.claim("payment-corrupt")).rejects.toMatchObject({
+        code: "STORAGE_CORRUPTED"
+      });
+
+      await writeFile(claimPath, "[]", "utf-8");
+      expect(await store.claim("payment-corrupt")).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
