@@ -290,4 +290,9 @@ export class AgentRuntime {
       }
     }
   }
+
+  /** Legacy hook retained for regression instrumentation; draining is promise-based. */
+  private async sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
 }
