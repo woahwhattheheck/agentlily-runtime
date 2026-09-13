@@ -102,6 +102,9 @@ export function createPaymentPrepTool(): ToolDefinition<
       context
     }: ToolInvocation<PaymentPrepPayload>): PaymentPrepResult {
       assertNonEmptyValue(payload.walletId, "walletId");
+      if (payload.recipientId !== undefined) {
+        assertNonEmptyValue(payload.recipientId, "recipientId");
+      }
       const assetCode = payload.assetCode ?? "XLM";
       assertNonEmptyValue(assetCode, "assetCode");
 
