@@ -32,6 +32,7 @@ export {
   InMemoryMemoryStore,
   JsonFileMemoryStore
 } from "./memory/memory-store.js";
+export { JsonFileToolApprovalStore } from "./policies/json-file-tool-approval-store.js";
 export {
   InMemoryToolApprovalStore,
   ToolApprovalPolicy,
@@ -82,6 +83,7 @@ export type {
   MemoryEntry,
   MemoryStore
 } from "./memory/memory-store.js";
+export type { JsonFileToolApprovalStoreOptions } from "./policies/json-file-tool-approval-store.js";
 export type {
   InMemoryToolApprovalStoreOptions,
   ToolApprovalConsumeDecision,
