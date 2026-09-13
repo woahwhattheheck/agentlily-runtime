@@ -18,7 +18,11 @@ export class AgentInstanceManager {
   private evictionCount = 0;
 
   public constructor(options: AgentInstanceManagerOptions = {}) {
-    this.maxInstances = options.maxInstances ?? DEFAULT_MAX_AGENT_INSTANCES;
+    const maxInstances = options.maxInstances ?? DEFAULT_MAX_AGENT_INSTANCES;
+    if (!Number.isInteger(maxInstances) || maxInstances < 0) {
+      throw new RangeError("maxInstances must be a non-negative integer.");
+    }
+    this.maxInstances = maxInstances;
   }
 
   public getOrCreate(agentId: string): AgentInstance {
