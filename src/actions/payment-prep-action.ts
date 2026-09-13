@@ -8,12 +8,14 @@ const STROOPS_PER_UNIT = 10_000_000n;
 const STROOPS_PER_UNIT_NUMBER = 10_000_000;
 const MAX_STELLAR_AMOUNT_STROOPS = 9_223_372_036_854_775_807n;
 const DECIMAL_AMOUNT_RE = /^\d+(?:\.\d{1,7})?$/;
+const STELLAR_ASSET_CODE_RE = /^[A-Za-z0-9]{1,12}$/;
 
 export interface PaymentPrepPayload {
   walletId: string;
   amount: string | number;
   recipientId?: string | undefined;
   assetCode?: string | undefined;
+  assetIssuer?: string | undefined;
   memo?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
 }
@@ -24,6 +26,7 @@ export interface PaymentPrepResult {
   amount: string;
   recipientId?: string | undefined;
   assetCode: string;
+  assetIssuer?: string | undefined;
   memo?: string | undefined;
   preparedAt: string;
   transactionStubId: string;
@@ -99,20 +102,29 @@ function createTransactionStubId(input: {
   walletId: string;
   recipientId: string | undefined;
   assetCode: string;
+  assetIssuer: string | undefined;
   amountStroops: bigint;
   memo: string | undefined;
 }): string {
   // Metadata is intentionally excluded: it is audit context rather than part of
   // the Stellar payment intent. Amount identity is expressed in stroops so
   // equivalent spellings such as "1", "1.0", and 1 share one idempotency key.
-  const canonicalIntent = JSON.stringify([
+  // Keep native-XLM intent bytes backward compatible with the pre-issuer format;
+  // issued assets append issuer identity so equal codes from different issuers
+  // cannot collapse to the same transaction stub.
+  const nativeIntent = [
     input.taskId,
     input.walletId,
     input.recipientId ?? null,
     input.assetCode,
     input.amountStroops.toString(),
     input.memo ?? null
-  ]);
+  ];
+  const canonicalIntent = JSON.stringify(
+    input.assetIssuer === undefined
+      ? nativeIntent
+      : [...nativeIntent, input.assetIssuer]
+  );
   const intentDigest = createHash("sha256")
     .update(canonicalIntent, "utf8")
     .digest("hex");
@@ -138,6 +150,31 @@ export function createPaymentPrepTool(): ToolDefinition<
       }
       const assetCode = payload.assetCode ?? "XLM";
       assertNonEmptyValue(assetCode, "assetCode");
+      if (!STELLAR_ASSET_CODE_RE.test(assetCode)) {
+        throw new RuntimeError(
+          "INVALID_TASK",
+          "assetCode must contain 1 to 12 alphanumeric characters.",
+          { fieldName: "assetCode", assetCode }
+        );
+      }
+
+      const assetIssuer = payload.assetIssuer;
+      if (assetIssuer !== undefined) {
+        assertNonEmptyValue(assetIssuer, "assetIssuer");
+        if (assetIssuer !== assetIssuer.trim()) {
+          throw new RuntimeError(
+            "INVALID_TASK",
+            "assetIssuer must not contain leading or trailing whitespace.",
+            { fieldName: "assetIssuer" }
+          );
+        }
+      } else if (assetCode !== "XLM") {
+        throw new RuntimeError(
+          "INVALID_TASK",
+          "assetIssuer must be specified for issued Stellar assets.",
+          { fieldName: "assetIssuer", assetCode }
+        );
+      }
 
       const amount = payload.amount as unknown;
       if (
@@ -167,6 +204,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         walletId: payload.walletId,
         recipientId: payload.recipientId,
         assetCode,
+        assetIssuer,
         amountStroops: normalizedAmount.stroops,
         memo: payload.memo
       });
@@ -177,6 +215,7 @@ export function createPaymentPrepTool(): ToolDefinition<
         amount: amountStr,
         recipientId: payload.recipientId,
         assetCode,
+        assetIssuer,
         memo: payload.memo,
         preparedAt,
         transactionStubId,
