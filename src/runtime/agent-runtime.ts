@@ -273,6 +273,9 @@ export class AgentRuntime {
 
       throw error;
     } finally {
+      // Tool-call budgets are scoped to one task lifecycle. Completed and failed
+      // task IDs are explicitly reusable, so stale counts must not follow reuse.
+      this.dependencies.actionExecutor.reset(task.taskId);
       this.inFlightTasks.delete(task.taskId);
       this.inFlightPromises.delete(task.taskId);
       resolveInFlight();

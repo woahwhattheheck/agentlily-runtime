@@ -272,4 +272,71 @@ describe("AgentRuntime", () => {
     // Zero lifecycle events emitted
     expect(emittedEvents).toEqual([]);
   });
+
+  it("resets a completed task's tool-call budget before task ID reuse", async () => {
+    let calls = 0;
+    const runtime = new AgentRuntime({
+      runtimeId: "runtime-reused-success-id",
+      maxToolCallsPerTask: 1
+    });
+    runtime.registerTool({
+      name: "count",
+      description: "Counts executions.",
+      execute() {
+        calls += 1;
+        return { calls };
+      }
+    });
+    await runtime.start();
+
+    const task = {
+      taskId: "reused-task-id",
+      agentId: "agent-reused-success-id",
+      toolName: "count",
+      input: "Count this task",
+      payload: {}
+    };
+
+    await expect(runtime.executeTask(task)).resolves.toMatchObject({
+      output: { calls: 1 }
+    });
+    await expect(runtime.executeTask(task)).resolves.toMatchObject({
+      output: { calls: 2 }
+    });
+  });
+
+  it("resets a failed task's tool-call budget before task ID reuse", async () => {
+    let calls = 0;
+    const runtime = new AgentRuntime({
+      runtimeId: "runtime-reused-failed-id",
+      maxToolCallsPerTask: 1
+    });
+    runtime.registerTool({
+      name: "fail-once",
+      description: "Fails only its first execution.",
+      execute() {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("first execution failed");
+        }
+        return { calls };
+      }
+    });
+    await runtime.start();
+
+    const task = {
+      taskId: "reused-failed-task-id",
+      agentId: "agent-reused-failed-id",
+      toolName: "fail-once",
+      input: "Retry this task ID",
+      payload: {}
+    };
+
+    await expect(runtime.executeTask(task)).rejects.toThrow(
+      "first execution failed"
+    );
+    await expect(runtime.executeTask(task)).resolves.toMatchObject({
+      output: { calls: 2 }
+    });
+  });
 });
