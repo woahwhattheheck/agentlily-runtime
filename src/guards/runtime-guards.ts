@@ -10,11 +10,11 @@ export function assertRuntimeStarted(isStarted: boolean): void {
 }
 
 export function assertNonEmptyValue(
-  value: string,
+  value: unknown,
   fieldName: string,
   code: "INVALID_TASK" | "EXECUTION_FAILED" = "INVALID_TASK"
 ): void {
-  if (value.trim().length === 0) {
+  if (typeof value !== "string" || value.trim().length === 0) {
     throw new RuntimeError(code, `${fieldName} must be a non-empty string.`, {
       fieldName
     });
