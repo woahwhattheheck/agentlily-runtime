@@ -38,12 +38,14 @@ export {
   InMemoryMemoryStore,
   JsonFileMemoryStore
 } from "./memory/memory-store.js";
-export { JsonFileToolApprovalStore } from "./policies/json-file-tool-approval-store.js";
 export {
-  InMemoryToolApprovalStore,
+  JsonFileToolApprovalStore
+} from "./policies/hardened-json-file-tool-approval-store.js";
+export {
   ToolApprovalPolicy,
   digestToolApprovalPayload
-} from "./policies/tool-approval-policy.js";
+} from "./policies/hardened-tool-approval-policy.js";
+export { InMemoryToolApprovalStore } from "./policies/tool-approval-policy.js";
 export {
   AllOfToolPolicy,
   ToolAllowlistPolicy
