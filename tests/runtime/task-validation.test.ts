@@ -95,6 +95,26 @@ describe("AgentRuntime.executeTask task field validation (Issue #263)", () => {
     expect(events).toEqual([]);
   });
 
+  it("rejects non-string task fields before emitting any events", async () => {
+    const { runtime, events } = makeRuntime();
+    await runtime.start();
+
+    await expect(
+      runtime.executeTask({
+        taskId: null as unknown as string,
+        agentId: "a1",
+        toolName: "ok",
+        input: "go",
+        payload: {}
+      })
+    ).rejects.toMatchObject({
+      code: "INVALID_TASK",
+      details: { fieldName: "taskId" }
+    });
+
+    expect(events).toEqual([]);
+  });
+
   it("still emits events for valid tasks", async () => {
     const { runtime, events } = makeRuntime();
     await runtime.start();
