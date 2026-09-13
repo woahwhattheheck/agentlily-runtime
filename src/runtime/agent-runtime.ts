@@ -10,6 +10,8 @@ import { createRuntimeDependencies } from "./bootstrap.js";
 import type { RuntimeContext } from "./context.js";
 import type { RuntimeOptions } from "./types.js";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export interface RuntimeStopOptions {
   clearListeners?: boolean;
   drainTimeoutMs?: number;
@@ -92,9 +94,13 @@ export class AgentRuntime {
     const drainTimeoutMs = options.drainTimeoutMs;
     if (
       drainTimeoutMs !== undefined &&
-      (!Number.isInteger(drainTimeoutMs) || drainTimeoutMs < 0)
+      (!Number.isInteger(drainTimeoutMs) ||
+        drainTimeoutMs < 0 ||
+        drainTimeoutMs > MAX_TIMER_DELAY_MS)
     ) {
-      throw new RangeError("drainTimeoutMs must be a non-negative integer.");
+      throw new RangeError(
+        `drainTimeoutMs must be an integer between 0 and ${MAX_TIMER_DELAY_MS}.`
+      );
     }
 
     this.stopped = true;
