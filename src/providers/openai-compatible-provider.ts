@@ -135,8 +135,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       );
     }
 
+    const queryIndex = normalizedBaseUrl.indexOf("?");
+    const baseUrlPath =
+      queryIndex === -1
+        ? normalizedBaseUrl
+        : normalizedBaseUrl.slice(0, queryIndex);
+    const baseUrlQuery =
+      queryIndex === -1 ? "" : normalizedBaseUrl.slice(queryIndex);
+
     this.apiKey = options.apiKey.trim();
-    this.baseUrl = normalizedBaseUrl.replace(/\/+$/, "");
+    this.baseUrl = `${baseUrlPath.replace(/\/+$/, "")}${baseUrlQuery}`;
     this.model = options.model?.trim() || "gpt-4o-mini";
     this.timeoutMs = options.timeoutMs;
     this.customHeaders = copyCustomHeaders(options.headers);
