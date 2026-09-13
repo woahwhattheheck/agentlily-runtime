@@ -85,6 +85,40 @@ export class RuntimeEventListenerLimitError extends Error {
 type Listener = RuntimeEventListener<RuntimeEventName>;
 type OnceListener = Listener & { originalListener?: Listener };
 
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+function listenerErrorMessage(error: unknown): string {
+  if (
+    error !== null &&
+    (typeof error === "object" || typeof error === "function")
+  ) {
+    try {
+      if (error instanceof Error) {
+        return error.message;
+      }
+
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    } catch {
+      return "Unknown listener failure.";
+    }
+  }
+
+  try {
+    return String(error);
+  } catch {
+    return "Unknown listener failure.";
+  }
+}
+
 export class RuntimeEventBus {
   private readonly listeners = new Map<RuntimeEventName, Set<Listener>>();
   private readonly maxListeners: number;
@@ -203,8 +237,8 @@ export class RuntimeEventBus {
 
       try {
         const result = listener(event) as unknown;
-        if (result instanceof Promise) {
-          result.catch((error: unknown) => {
+        if (isPromiseLike(result)) {
+          Promise.resolve(result).catch((error: unknown) => {
             this.handleListenerError(event.name, error);
           });
         }
@@ -243,8 +277,7 @@ export class RuntimeEventBus {
           name: "runtime.internal.error",
           payload: {
             eventName,
-            errorMessage:
-              error instanceof Error ? error.message : String(error),
+            errorMessage: listenerErrorMessage(error),
             occurredAt: new Date().toISOString()
           }
         });
@@ -261,8 +294,8 @@ export class RuntimeEventBus {
 
     try {
       const result = this.onListenerError(error) as unknown;
-      if (result instanceof Promise) {
-        result.catch((observerError: unknown) => {
+      if (isPromiseLike(result)) {
+        Promise.resolve(result).catch((observerError: unknown) => {
           console.error(
             "[RuntimeEventBus] onListenerError handler failed:",
             observerError
