@@ -68,6 +68,17 @@ Authorization is fail-closed:
 Tool lookup happens before policy evaluation, so an unknown name still reports
 `TOOL_NOT_FOUND` rather than leaking into policy handling.
 
-Tool policies are an execution guard, not a complete human-approval workflow.
-Higher-level approval state and durable policy engines remain separate extension
-points.
+## Human approval for selected tools
+
+For one-time, payload-bound human approval, compose ordinary tool policy with
+`ToolApprovalPolicy`. It binds an approval to the exact task, agent, tool, and
+type-aware payload digest, then consumes that grant once before execution.
+
+See [Payload-Bound Tool Approvals](./tool-approvals.md) for the trust boundary,
+expiry/revocation behavior, payload canonicalization rules, and durability
+requirements.
+
+Tool policy and approval policy are execution guards, not a claim that every
+external authorization problem is solved. Durable/distributed approval stores,
+wallet ownership, provider authentication, settlement evidence, and broader
+organizational approval workflows remain separate control boundaries.
