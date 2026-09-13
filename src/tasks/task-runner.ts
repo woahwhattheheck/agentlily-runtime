@@ -12,6 +12,7 @@ export class TaskRunner {
   private readonly memoryStore: MemoryStore;
   private readonly timeoutMs: number | undefined;
   private readonly activeExecutions = new Map<string, Promise<void>>();
+  private readonly unknownOutcomeTaskIds = new Set<string>();
 
   public constructor(
     actionExecutor: ActionExecutor,
@@ -69,6 +70,14 @@ export class TaskRunner {
         "INVALID_TASK",
         "task.agentId must match context.agent.agentId.",
         { agentId: task.agentId, contextAgentId }
+      );
+    }
+
+    if (this.unknownOutcomeTaskIds.has(task.taskId)) {
+      throw new RuntimeError(
+        "TASK_OUTCOME_UNKNOWN",
+        `Task "${task.taskId}" previously timed out, so its side-effect outcome is unknown and the task ID cannot be retried safely.`,
+        { taskId: task.taskId }
       );
     }
 
@@ -151,6 +160,12 @@ export class TaskRunner {
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        // JavaScript timeouts do not cancel arbitrary tool promises. Once the
+        // deadline wins, the caller cannot know whether the underlying tool
+        // already performed (or will later perform) a side effect. Retire this
+        // task ID for the lifetime of the TaskRunner so a same-ID retry cannot
+        // convert an ambiguous outcome into a duplicate side effect.
+        this.unknownOutcomeTaskIds.add(context.taskId);
         reject(
           new RuntimeError(
             "EXECUTION_FAILED",
