@@ -8,6 +8,10 @@ import {
 } from "../memory/memory-store.js";
 import { UnconfiguredModelProvider } from "../providers/model-provider.js";
 import { InMemoryRuntimeStateStore } from "../state/runtime-state.js";
+import {
+  InMemoryTaskOutcomeStore,
+  JsonFileTaskOutcomeStore
+} from "../tasks/task-outcome-store.js";
 import { TaskRunner } from "../tasks/task-runner.js";
 import { ToolRegistry } from "../tools/tool-registry.js";
 import type { RuntimeOptions } from "./types.js";
@@ -26,6 +30,15 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     throw new TypeError("memoryStoragePath must be a non-empty string.");
   }
 
+  if (
+    options.taskOutcomeStore === undefined &&
+    options.taskOutcomeStoragePath !== undefined &&
+    (typeof options.taskOutcomeStoragePath !== "string" ||
+      options.taskOutcomeStoragePath.trim().length === 0)
+  ) {
+    throw new TypeError("taskOutcomeStoragePath must be a non-empty string.");
+  }
+
   const toolRegistry = new ToolRegistry();
   if (options.tools !== undefined) {
     for (const tool of options.tools) {
@@ -38,6 +51,15 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     (options.memoryStoragePath !== undefined
       ? new JsonFileMemoryStore(options.memoryStoragePath)
       : new InMemoryMemoryStore());
+  const taskOutcomeStore =
+    options.taskOutcomeStore ??
+    (options.taskOutcomeStoragePath !== undefined
+      ? new JsonFileTaskOutcomeStore(options.taskOutcomeStoragePath)
+      : options.memoryStoragePath !== undefined
+        ? new JsonFileTaskOutcomeStore(
+            `${options.memoryStoragePath}.task-outcomes.json`
+          )
+        : new InMemoryTaskOutcomeStore());
   const logger = options.logger ?? new ConsoleRuntimeLogger();
   const modelProvider =
     options.modelProvider ?? new UnconfiguredModelProvider(logger);
@@ -59,7 +81,8 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
   const taskRunner = new TaskRunner(
     actionExecutor,
     memoryStore,
-    options.maxTaskDurationMs
+    options.maxTaskDurationMs,
+    taskOutcomeStore
   );
 
   return {
@@ -70,6 +93,7 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     memoryStore,
     modelProvider,
     stateStore,
+    taskOutcomeStore,
     taskRunner,
     toolRegistry
   };
