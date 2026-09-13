@@ -74,7 +74,7 @@ export class AgentRuntime {
     }
 
     this.started = true;
-    this.dependencies.logger.info("Runtime started.", {
+    this.logSafely("info", "Runtime started.", {
       runtimeId: this.runtimeId
     });
     this.dependencies.eventBus.emit({
@@ -127,7 +127,8 @@ export class AgentRuntime {
     const drainDurationMs = Date.now() - drainStartMs;
 
     if (strandedTaskIds.length > 0) {
-      this.dependencies.logger.warn(
+      this.logSafely(
+        "warn",
         `Runtime stopped with stranded in-flight tasks. Tasks still in flight after drain timeout: ${strandedTaskIds.join(", ")}`,
         {
           runtimeId: this.runtimeId,
@@ -141,7 +142,7 @@ export class AgentRuntime {
         }
       );
     } else {
-      this.dependencies.logger.info("Runtime stopped.", {
+      this.logSafely("info", "Runtime stopped.", {
         runtimeId: this.runtimeId,
         drainDurationMs
       });
@@ -225,7 +226,7 @@ export class AgentRuntime {
         }
       });
 
-      this.dependencies.logger.info("Executing runtime task.", {
+      this.logSafely("info", "Executing runtime task.", {
         runtimeId: this.runtimeId,
         taskId: task.taskId,
         toolName: task.toolName
@@ -236,7 +237,7 @@ export class AgentRuntime {
         context
       );
 
-      this.dependencies.logger.info("Runtime task completed.", {
+      this.logSafely("info", "Runtime task completed.", {
         runtimeId: this.runtimeId,
         taskId: task.taskId,
         toolName: task.toolName,
@@ -259,7 +260,7 @@ export class AgentRuntime {
       const reason =
         error instanceof Error ? error.message : "Unknown runtime failure.";
 
-      this.dependencies.logger.error("Runtime task failed.", {
+      this.logSafely("error", "Runtime task failed.", {
         runtimeId: this.runtimeId,
         taskId: task.taskId,
         reason
@@ -300,6 +301,19 @@ export class AgentRuntime {
         // Preserve duplicate-task and shutdown-drain custody until it does.
         void activeExecution.then(releaseTask);
       }
+    }
+  }
+
+  private logSafely(
+    level: "info" | "warn" | "error",
+    message: string,
+    metadata: Record<string, unknown>
+  ): void {
+    try {
+      this.dependencies.logger[level](message, metadata);
+    } catch {
+      // Runtime logging is observational. A custom logger failure must not
+      // change lifecycle state, task success/failure, or the original error.
     }
   }
 
