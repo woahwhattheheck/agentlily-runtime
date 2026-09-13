@@ -231,7 +231,7 @@ export class RuntimeEventBus {
       `[RuntimeEventBus] Listener error during "${eventName}" (listener error):`,
       error
     );
-    this.onListenerError?.(error);
+    this.notifyListenerErrorObserver(error);
 
     if (
       eventName !== "runtime.internal.error" &&
@@ -251,6 +251,29 @@ export class RuntimeEventBus {
       } finally {
         this.isEmittingInternalError = false;
       }
+    }
+  }
+
+  private notifyListenerErrorObserver(error: unknown): void {
+    if (!this.onListenerError) {
+      return;
+    }
+
+    try {
+      const result = this.onListenerError(error) as unknown;
+      if (result instanceof Promise) {
+        result.catch((observerError: unknown) => {
+          console.error(
+            "[RuntimeEventBus] onListenerError handler failed:",
+            observerError
+          );
+        });
+      }
+    } catch (observerError) {
+      console.error(
+        "[RuntimeEventBus] onListenerError handler failed:",
+        observerError
+      );
     }
   }
 }
