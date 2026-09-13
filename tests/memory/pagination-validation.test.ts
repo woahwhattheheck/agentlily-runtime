@@ -50,13 +50,17 @@ async function expectInvalidPagination(store: MemoryStore): Promise<void> {
   for (const offset of invalidPaginationValues) {
     await expect(
       store.listByAgent("agent-a", { offset })
-    ).rejects.toThrow(new RangeError("offset must be a non-negative integer."));
+    ).rejects.toThrow(
+      new RangeError("offset must be a non-negative integer.")
+    );
   }
 
   for (const limit of invalidPaginationValues) {
     await expect(
       store.listByAgent("agent-a", { limit })
-    ).rejects.toThrow(new RangeError("limit must be a non-negative integer."));
+    ).rejects.toThrow(
+      new RangeError("limit must be a non-negative integer.")
+    );
   }
 }
 
@@ -96,6 +100,8 @@ describe("memory list pagination validation", () => {
 
     await expect(
       store.listByAgent("agent-a", invalidOptions)
-    ).rejects.toThrow(new RangeError("offset must be a non-negative integer."));
+    ).rejects.toThrow(
+      new RangeError("offset must be a non-negative integer.")
+    );
   });
 });
