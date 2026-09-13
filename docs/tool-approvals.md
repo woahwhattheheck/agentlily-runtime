@@ -99,10 +99,13 @@ Supported values are:
 
 Object key order does not affect the digest. Runtime type does: for example, numeric `1`, string `"1"`, and bigint `1n` have different digests.
 
+The supported object/array shape is an acyclic tree. Shared object or array references are rejected even when they do not form a cycle, because JavaScript tools can observe alias identity (`payload.left === payload.right`) and that distinction must not collapse into the same approval digest.
+
 The approval boundary fails closed for ambiguous or effectful payload shapes, including:
 
 - `NaN` or infinities
 - cyclic graphs
+- shared object or array references
 - sparse arrays or arrays with extra properties
 - getters, setters, or other accessors
 - symbol-keyed properties
