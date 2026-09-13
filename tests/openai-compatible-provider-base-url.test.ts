@@ -16,6 +16,10 @@ describe("OpenAICompatibleModelProvider base URL boundary", () => {
       "https://provider.example/v1/chat/completions?tenant=alpha"
     ],
     [
+      "https://provider.example/v1/?tenant=alpha/",
+      "https://provider.example/v1/chat/completions?tenant=alpha/"
+    ],
+    [
       "https://provider.example/v1?",
       "https://provider.example/v1/chat/completions?"
     ]
