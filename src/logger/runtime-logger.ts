@@ -28,6 +28,7 @@ export interface ConsoleRuntimeLoggerOptions {
 }
 
 const DEFAULT_REDACT_KEYS = /(secret|token|password|api.?key|authorization)/i;
+const CIRCULAR_METADATA_SENTINEL = "[Circular]";
 
 function matchesRedactKey(key: string, redactKeys: RegExp): boolean {
   // `RegExp.test()` mutates lastIndex for global/sticky regexes. Treat the
@@ -42,29 +43,41 @@ function matchesRedactKey(key: string, redactKeys: RegExp): boolean {
   }
 }
 
-function redactValue(value: unknown, redactKeys: RegExp): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item: unknown): unknown => {
-      if (item !== null && typeof item === "object") {
-        return redactValue(item, redactKeys);
-      }
-      return item;
-    });
+function redactValue(
+  value: unknown,
+  redactKeys: RegExp,
+  ancestors: WeakSet<object> = new WeakSet<object>()
+): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
   }
 
-  if (value !== null && typeof value === "object") {
+  if (ancestors.has(value)) {
+    return CIRCULAR_METADATA_SENTINEL;
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((item: unknown): unknown =>
+        redactValue(item, redactKeys, ancestors)
+      );
+    }
+
     const result: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (matchesRedactKey(key, redactKeys)) {
         result[key] = "[REDACTED]";
       } else {
-        result[key] = redactValue(entry, redactKeys);
+        result[key] = redactValue(entry, redactKeys, ancestors);
       }
     }
     return result;
+  } finally {
+    // Track only the active traversal path. The same object may be referenced
+    // from multiple non-cyclic branches and should serialize normally each time.
+    ancestors.delete(value);
   }
-
-  return value;
 }
 
 export class ConsoleRuntimeLogger implements RuntimeLogger {
