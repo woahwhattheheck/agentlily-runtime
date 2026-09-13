@@ -10,6 +10,8 @@ import { createRuntimeDependencies } from "./bootstrap.js";
 import type { RuntimeContext } from "./context.js";
 import type { RuntimeOptions } from "./types.js";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export interface RuntimeStopOptions {
   clearListeners?: boolean;
   drainTimeoutMs?: number;
@@ -89,14 +91,26 @@ export class AgentRuntime {
       return;
     }
 
+    const drainTimeoutMs = options.drainTimeoutMs;
+    if (
+      drainTimeoutMs !== undefined &&
+      (!Number.isInteger(drainTimeoutMs) ||
+        drainTimeoutMs < 0 ||
+        drainTimeoutMs > MAX_TIMER_DELAY_MS)
+    ) {
+      throw new RangeError(
+        `drainTimeoutMs must be an integer between 0 and ${MAX_TIMER_DELAY_MS}.`
+      );
+    }
+
     this.stopped = true;
     this.started = false;
 
     const drainStartMs = Date.now();
     let strandedTaskIds: string[] = [];
 
-    if (options.drainTimeoutMs !== undefined && options.drainTimeoutMs > 0) {
-      await this.awaitInFlightTasks(options.drainTimeoutMs);
+    if (drainTimeoutMs !== undefined && drainTimeoutMs > 0) {
+      await this.awaitInFlightTasks(drainTimeoutMs);
 
       if (this.inFlightTasks.size > 0) {
         strandedTaskIds = Array.from(this.inFlightTasks);
@@ -119,7 +133,7 @@ export class AgentRuntime {
           strandedTasks: strandedTaskIds,
           inFlightTasks: strandedTaskIds,
           inFlightTaskCount: strandedTaskIds.length,
-          drainTimeoutMs: options.drainTimeoutMs,
+          drainTimeoutMs,
           elapsedDrainMs: drainDurationMs,
           drainDurationMs
         }
