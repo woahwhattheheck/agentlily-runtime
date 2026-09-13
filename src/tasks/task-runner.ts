@@ -11,6 +11,7 @@ export class TaskRunner {
   private readonly actionExecutor: ActionExecutor;
   private readonly memoryStore: MemoryStore;
   private readonly timeoutMs: number | undefined;
+  private readonly activeExecutions = new Map<string, Promise<void>>();
 
   public constructor(
     actionExecutor: ActionExecutor,
@@ -31,6 +32,16 @@ export class TaskRunner {
     this.actionExecutor = actionExecutor;
     this.memoryStore = memoryStore;
     this.timeoutMs = timeoutMs;
+  }
+
+  /**
+   * Returns a settlement-only promise while the underlying tool invocation for
+   * a task ID is still executing. A timeout may reject the public task before
+   * this promise settles; callers can use it to retain lifecycle custody until
+   * the tool itself has actually stopped running.
+   */
+  public getActiveExecution(taskId: string): Promise<void> | undefined {
+    return this.activeExecutions.get(taskId);
   }
 
   public async run<TPayload, TResult>(
@@ -98,6 +109,22 @@ export class TaskRunner {
       payload,
       context
     );
+
+    // Keep a rejection-safe settlement promise separate from the public result.
+    // If the deadline wins Promise.race(), the tool can still be running; this
+    // record lets AgentRuntime retain the task ID, drain promise, and call budget
+    // until that underlying invocation actually settles.
+    const settlement = execution.then(
+      () => undefined,
+      () => undefined
+    );
+    this.activeExecutions.set(context.taskId, settlement);
+    void settlement.then(() => {
+      if (this.activeExecutions.get(context.taskId) === settlement) {
+        this.activeExecutions.delete(context.taskId);
+      }
+    });
+
     const timeoutMs = this.timeoutMs;
 
     if (timeoutMs === undefined) {
