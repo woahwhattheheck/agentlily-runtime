@@ -55,6 +55,23 @@ export class TaskRunner {
     assertNonEmptyValue(task.toolName, "toolName");
     assertNonEmptyValue(task.input, "input");
 
+    if (task.taskId !== context.taskId) {
+      throw new RuntimeError(
+        "INVALID_TASK",
+        "task.taskId must match context.taskId.",
+        { taskId: task.taskId, contextTaskId: context.taskId }
+      );
+    }
+
+    const contextAgentId = context.agent?.agentId;
+    if (task.agentId !== contextAgentId) {
+      throw new RuntimeError(
+        "INVALID_TASK",
+        "task.agentId must match context.agent.agentId.",
+        { agentId: task.agentId, contextAgentId }
+      );
+    }
+
     const startTime = performance.now();
     const startedAt = new Date().toISOString();
 
