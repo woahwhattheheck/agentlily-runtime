@@ -1,16 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleModelProvider } from "../src/index.js";
 
 describe("OpenAICompatibleModelProvider base URL boundary", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it.each([
-    "https://provider.example/v1?tenant=alpha",
-    "https://provider.example/v1?"
-  ])("rejects query-bearing base URLs: %s", (baseUrl) => {
-    expect(
-      () => new OpenAICompatibleModelProvider({ apiKey: "test-key", baseUrl })
-    ).toThrowError(
-      "OpenAI-compatible provider baseUrl must not include a query string or fragment."
+    [
+      "https://provider.example/v1?tenant=alpha",
+      "https://provider.example/v1/chat/completions?tenant=alpha"
+    ],
+    [
+      "https://provider.example/v1/?tenant=alpha",
+      "https://provider.example/v1/chat/completions?tenant=alpha"
+    ],
+    [
+      "https://provider.example/v1?",
+      "https://provider.example/v1/chat/completions?"
+    ]
+  ])("preserves base URL query routing: %s", async (baseUrl, expectedUrl) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+        { status: 200 }
+      )
     );
+    const provider = new OpenAICompatibleModelProvider({
+      apiKey: "test-key",
+      baseUrl
+    });
+
+    await provider.generate({ instructions: "test", input: "test" });
+
+    expect(fetchSpy).toHaveBeenCalledWith(expectedUrl, expect.any(Object));
   });
 
   it.each([
@@ -20,7 +43,7 @@ describe("OpenAICompatibleModelProvider base URL boundary", () => {
     expect(
       () => new OpenAICompatibleModelProvider({ apiKey: "test-key", baseUrl })
     ).toThrowError(
-      "OpenAI-compatible provider baseUrl must not include a query string or fragment."
+      "OpenAI-compatible provider baseUrl must not include a fragment."
     );
   });
 
