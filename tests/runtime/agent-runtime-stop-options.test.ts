@@ -141,6 +141,8 @@ describe("AgentRuntime.stop with RuntimeStopOptions (#233)", () => {
       Number.NaN,
       Number.POSITIVE_INFINITY,
       Number.NEGATIVE_INFINITY,
+      2_147_483_648,
+      Number.MAX_SAFE_INTEGER,
       "10",
       true
     ];
@@ -148,7 +150,9 @@ describe("AgentRuntime.stop with RuntimeStopOptions (#233)", () => {
     for (const drainTimeoutMs of invalidValues) {
       await expect(
         runtime.stop({ drainTimeoutMs: drainTimeoutMs as number })
-      ).rejects.toThrow("drainTimeoutMs must be a non-negative integer.");
+      ).rejects.toThrow(
+        "drainTimeoutMs must be an integer between 0 and 2147483647."
+      );
       expect(runtime.isRunning()).toBe(true);
       expect(stoppedListener).not.toHaveBeenCalled();
     }
@@ -156,6 +160,25 @@ describe("AgentRuntime.stop with RuntimeStopOptions (#233)", () => {
     await runtime.stop({ drainTimeoutMs: 0 });
     expect(runtime.isRunning()).toBe(false);
     expect(stoppedListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts the maximum safe timer delay when no tasks are in flight", async () => {
+    const runtime = new AgentRuntime({
+      runtimeId: "rt-max-drain-timeout",
+      logger: {
+        level: "error",
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn()
+      }
+    });
+
+    await runtime.start();
+    await expect(
+      runtime.stop({ drainTimeoutMs: 2_147_483_647 })
+    ).resolves.toBeUndefined();
+    expect(runtime.isRunning()).toBe(false);
   });
 
   it("emits runtime.stopped only once across multiple stop calls with options", async () => {
