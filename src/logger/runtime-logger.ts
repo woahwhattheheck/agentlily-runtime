@@ -29,6 +29,19 @@ export interface ConsoleRuntimeLoggerOptions {
 
 const DEFAULT_REDACT_KEYS = /(secret|token|password|api.?key|authorization)/i;
 
+function matchesRedactKey(key: string, redactKeys: RegExp): boolean {
+  // `RegExp.test()` mutates lastIndex for global/sticky regexes. Treat the
+  // public redactKeys option as a reusable predicate instead of allowing one
+  // matching key to change whether the next key is redacted.
+  const originalLastIndex = redactKeys.lastIndex;
+  redactKeys.lastIndex = 0;
+  try {
+    return redactKeys.test(key);
+  } finally {
+    redactKeys.lastIndex = originalLastIndex;
+  }
+}
+
 function redactValue(value: unknown, redactKeys: RegExp): unknown {
   if (Array.isArray(value)) {
     return value.map((item: unknown): unknown => {
@@ -42,7 +55,7 @@ function redactValue(value: unknown, redactKeys: RegExp): unknown {
   if (value !== null && typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
-      if (redactKeys.test(key)) {
+      if (matchesRedactKey(key, redactKeys)) {
         result[key] = "[REDACTED]";
       } else {
         result[key] = redactValue(entry, redactKeys);
