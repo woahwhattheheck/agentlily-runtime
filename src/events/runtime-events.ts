@@ -36,6 +36,14 @@ export interface RuntimeEventMap {
     toolName: string;
     invokedAt: string;
   };
+  "runtime.tool.denied": {
+    runtimeId: string;
+    taskId: string;
+    agentId: string;
+    toolName: string;
+    reason: string;
+    deniedAt: string;
+  };
 }
 
 export type RuntimeEventName = keyof RuntimeEventMap;

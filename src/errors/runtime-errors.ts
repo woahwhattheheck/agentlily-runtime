@@ -8,6 +8,7 @@ export type RuntimeErrorCode =
   | "INVALID_TASK"
   | "EXECUTION_FAILED"
   | "MAX_TOOL_CALLS_EXCEEDED"
+  | "TOOL_POLICY_DENIED"
   | "STORAGE_CORRUPTED";
 
 export class RuntimeError extends Error {

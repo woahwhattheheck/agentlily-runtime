@@ -1,6 +1,7 @@
 import type { RuntimeEventBus } from "../events/runtime-events.js";
 import type { RuntimeLogger } from "../logger/runtime-logger.js";
 import type { MemoryStore } from "../memory/memory-store.js";
+import type { ToolPolicy } from "../policies/tool-policy.js";
 import type { ModelProvider } from "../providers/model-provider.js";
 import type { RuntimeStateStore } from "../state/runtime-state.js";
 import type { ToolDefinition } from "../tools/types.js";
@@ -27,4 +28,6 @@ export interface RuntimeOptions {
   stateStore?: RuntimeStateStore;
   eventBus?: RuntimeEventBus;
   tools?: ToolDefinition[];
+  /** Optional authorization policy evaluated before each registered tool call. */
+  toolPolicy?: ToolPolicy;
 }

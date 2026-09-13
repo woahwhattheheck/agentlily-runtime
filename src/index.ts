@@ -32,6 +32,7 @@ export {
   InMemoryMemoryStore,
   JsonFileMemoryStore
 } from "./memory/memory-store.js";
+export { ToolAllowlistPolicy } from "./policies/tool-policy.js";
 export { UnconfiguredModelProvider } from "./providers/model-provider.js";
 export { OpenAICompatibleModelProvider } from "./providers/openai-compatible-provider.js";
 export { InMemoryRuntimeStateStore } from "./state/runtime-state.js";
@@ -68,6 +69,11 @@ export type {
   MemoryEntry,
   MemoryStore
 } from "./memory/memory-store.js";
+export type {
+  ToolPolicy,
+  ToolPolicyDecision,
+  ToolPolicyRequest
+} from "./policies/tool-policy.js";
 export type {
   ModelPrompt,
   ModelProvider,

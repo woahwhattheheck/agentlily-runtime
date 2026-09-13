@@ -40,7 +40,8 @@ export function createRuntimeDependencies(options: RuntimeOptions) {
     options.maxToolCallsPerTask,
     eventBus,
     logger,
-    options.maxTrackedTasks
+    options.maxTrackedTasks,
+    options.toolPolicy
   );
   const taskRunner = new TaskRunner(
     actionExecutor,
