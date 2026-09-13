@@ -12,6 +12,9 @@ import {
 } from "../src/index.js";
 import type { PaymentPrepPayload, RuntimeContext } from "../src/index.js";
 
+const ISSUER_A = "GC2BKLYOOYPDEFJKLKY6FNNRQMGFLVHJKQRGNSSRRGSMPGF32LHCQVGF";
+const ISSUER_B = "GDI73WJ4SX7LOG3XZDJC3KCK6ED6E5NBYK2JUBQSPBCNNWEG3ZN7T75U";
+
 describe("PaymentPrepAction", () => {
   const createMockContext = (taskId: string): RuntimeContext => ({
     runtimeId: "runtime-test",
@@ -40,7 +43,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
       assetCode: "USDC",
-      assetIssuer: "GISSUERUSDC1",
+      assetIssuer: ISSUER_A,
       memo: "Invoice #1024",
       metadata: { priority: "high" }
     };
@@ -53,7 +56,7 @@ describe("PaymentPrepAction", () => {
       amount: "150.50",
       recipientId: payload.recipientId,
       assetCode: "USDC",
-      assetIssuer: "GISSUERUSDC1",
+      assetIssuer: ISSUER_A,
       memo: "Invoice #1024",
       preparedAt: "2026-08-30T12:00:00.000Z",
       transactionStubId: expect.stringMatching(
@@ -72,7 +75,7 @@ describe("PaymentPrepAction", () => {
       amount: "1.0",
       recipientId: "GRECIPIENT1",
       assetCode: "USDC",
-      assetIssuer: "GISSUER1",
+      assetIssuer: ISSUER_A,
       memo: "invoice-1",
       metadata: { source: "first" }
     };
@@ -89,7 +92,7 @@ describe("PaymentPrepAction", () => {
       { ...base, amount: "2.0" },
       { ...base, recipientId: "GRECIPIENT2" },
       { ...base, assetCode: "EURC" },
-      { ...base, assetIssuer: "GISSUER2" },
+      { ...base, assetIssuer: ISSUER_B },
       { ...base, memo: "invoice-2" }
     ];
 
@@ -130,7 +133,7 @@ describe("PaymentPrepAction", () => {
           walletId: "GWALLET123",
           amount: "10",
           assetCode: "XLM",
-          assetIssuer: "GISSUER1"
+          assetIssuer: ISSUER_A
         },
         context
       })
@@ -150,18 +153,18 @@ describe("PaymentPrepAction", () => {
       amount: "25",
       recipientId: "GRECIPIENT1",
       assetCode: "USDC",
-      assetIssuer: "GISSUER1"
+      assetIssuer: ISSUER_A
     };
 
     const first = tool.execute({ payload: base, context });
     const second = tool.execute({
-      payload: { ...base, assetIssuer: "GISSUER2" },
+      payload: { ...base, assetIssuer: ISSUER_B },
       context
     });
 
     expect(first.transactionStubId).not.toBe(second.transactionStubId);
-    expect(first.assetIssuer).toBe("GISSUER1");
-    expect(second.assetIssuer).toBe("GISSUER2");
+    expect(first.assetIssuer).toBe(ISSUER_A);
+    expect(second.assetIssuer).toBe(ISSUER_B);
   });
 
   it("preserves native XLM stub identity from the pre-issuer format", () => {
@@ -250,7 +253,7 @@ describe("PaymentPrepAction", () => {
             walletId: "GWALLET123",
             amount: "10",
             assetCode,
-            assetIssuer: "GISSUER1"
+            assetIssuer: ISSUER_A
           },
           context
         })
@@ -267,7 +270,13 @@ describe("PaymentPrepAction", () => {
     const tool = createPaymentPrepTool();
     const context = createMockContext("task-invalid-issuer");
 
-    for (const assetIssuer of [123, true, {}, " GISSUER1", "GISSUER1 "]) {
+    for (const assetIssuer of [
+      123,
+      true,
+      {},
+      ` ${ISSUER_A}`,
+      `${ISSUER_A} `
+    ]) {
       expect(() =>
         tool.execute({
           payload: {
