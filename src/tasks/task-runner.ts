@@ -15,6 +15,13 @@ export class TaskRunner {
     memoryStore: MemoryStore,
     timeoutMs?: number
   ) {
+    if (
+      timeoutMs !== undefined &&
+      (!Number.isInteger(timeoutMs) || timeoutMs < 0)
+    ) {
+      throw new RangeError("timeoutMs must be a non-negative integer.");
+    }
+
     this.actionExecutor = actionExecutor;
     this.memoryStore = memoryStore;
     this.timeoutMs = timeoutMs;
