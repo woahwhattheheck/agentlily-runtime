@@ -12,7 +12,9 @@ export interface MemoryEntry {
 }
 
 export interface ListMemoryOptions {
+  /** Maximum number of matching entries to return. Must be a non-negative integer. */
   limit?: number;
+  /** Number of matching entries to skip. Must be a non-negative integer. */
   offset?: number;
 }
 
@@ -41,6 +43,21 @@ export interface MemoryStore {
 
 export const DEFAULT_MAX_MEMORY_ENTRIES = 10_000;
 export const DEFAULT_MAX_MEMORY_ENTRIES_PER_AGENT = 1_000;
+
+function assertListMemoryOptions(options?: ListMemoryOptions): void {
+  if (
+    options?.offset !== undefined &&
+    (!Number.isInteger(options.offset) || options.offset < 0)
+  ) {
+    throw new RangeError("offset must be a non-negative integer.");
+  }
+  if (
+    options?.limit !== undefined &&
+    (!Number.isInteger(options.limit) || options.limit < 0)
+  ) {
+    throw new RangeError("limit must be a non-negative integer.");
+  }
+}
 
 const cloneOutput = (val: unknown): unknown => {
   if (val === null || typeof val !== "object") {
@@ -132,6 +149,8 @@ export class InMemoryMemoryStore implements MemoryStore {
     agentId: string,
     options?: ListMemoryOptions
   ): Promise<MemoryEntry[]> {
+    assertListMemoryOptions(options);
+
     const matching = this.entries.filter((entry) => entry.agentId === agentId);
     const offset = options?.offset ?? 0;
     const limit = options?.limit ?? matching.length;
@@ -334,6 +353,8 @@ export class JsonFileMemoryStore implements MemoryStore {
     agentId: string,
     options?: ListMemoryOptions
   ): Promise<MemoryEntry[]> {
+    assertListMemoryOptions(options);
+
     return serializeFileOperation(this.filePath, async () => {
       const entries = await this.loadEntries();
       const matching = entries.filter((entry) => entry.agentId === agentId);
