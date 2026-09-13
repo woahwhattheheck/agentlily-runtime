@@ -146,7 +146,7 @@ export class ConsoleRuntimeLogger implements RuntimeLogger {
 }
 
 export interface InMemoryRuntimeLoggerOptions {
-  /** Maximum number of entries to retain. Oldest entries are evicted first. Defaults to 5 000. */
+  /** Maximum number of entries to retain. Oldest entries are evicted first. Defaults to 5 000. Use 0 for unbounded retention. */
   maxEntries?: number;
   /** Minimum severity level to record. Entries below this level are silently discarded. When omitted, all levels are recorded. */
   level?: RuntimeLogLevel;
@@ -168,8 +168,12 @@ export class InMemoryRuntimeLogger implements RuntimeLogger {
   private readonly redactKeys: RegExp;
 
   public constructor(options: InMemoryRuntimeLoggerOptions = {}) {
-    this.minimumLevel = options.level ?? "debug";
-    this.maxEntries = options.maxEntries ?? 5_000;
+    const maxEntries = options.maxEntries ?? 5_000;
+    if (!Number.isInteger(maxEntries) || maxEntries < 0) {
+      throw new RangeError("maxEntries must be a non-negative integer.");
+    }
+
+    this.maxEntries = maxEntries;
     this.minimumLevel = options.level;
     this.redactKeys = options.redactKeys ?? DEFAULT_REDACT_KEYS;
   }
