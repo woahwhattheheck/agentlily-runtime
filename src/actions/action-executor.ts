@@ -28,60 +28,35 @@ export class ActionExecutor {
     private readonly toolRegistry: ToolRegistry,
     maxToolCallsPerTaskOrLogger?: number | RuntimeLogger,
     eventBus?: RuntimeEventBus,
+    loggerOrMaxTrackedTasks?: RuntimeLogger | number,
     maxTrackedTasks = 1_000
   ) {
-    if (!Number.isInteger(maxTrackedTasks) || maxTrackedTasks < 1) {
-      throw new RangeError("maxTrackedTasks must be a positive integer.");
-    }
+    let resolvedLogger: RuntimeLogger | undefined;
+    let resolvedMaxTrackedTasks = maxTrackedTasks;
 
     if (typeof maxToolCallsPerTaskOrLogger === "number") {
       this.maxToolCallsPerTask = maxToolCallsPerTaskOrLogger;
-      if (
-        eventBusOrLogger !== undefined &&
-        "emit" in eventBusOrLogger &&
-        typeof eventBusOrLogger.emit === "function"
-      ) {
-        this.eventBus = eventBusOrLogger;
-        this.logger = logger;
-      } else {
-        this.eventBus = undefined;
-        this.logger = (eventBusOrLogger as RuntimeLogger | undefined) ?? logger;
-      }
-    } else if (
-      maxToolCallsPerTaskOrLogger !== undefined &&
-      typeof maxToolCallsPerTaskOrLogger === "object" &&
-      ("info" in maxToolCallsPerTaskOrLogger ||
-        "warn" in maxToolCallsPerTaskOrLogger ||
-        "debug" in maxToolCallsPerTaskOrLogger ||
-        "error" in maxToolCallsPerTaskOrLogger)
-    ) {
-      this.maxToolCallsPerTask = undefined;
-      this.logger = maxToolCallsPerTaskOrLogger;
-      if (
-        eventBusOrLogger !== undefined &&
-        "emit" in eventBusOrLogger &&
-        typeof eventBusOrLogger.emit === "function"
-      ) {
-        this.eventBus = eventBusOrLogger;
-      } else {
-        this.eventBus = undefined;
-      }
     } else {
       this.maxToolCallsPerTask = undefined;
-      if (
-        eventBusOrLogger !== undefined &&
-        "emit" in eventBusOrLogger &&
-        typeof eventBusOrLogger.emit === "function"
-      ) {
-        this.eventBus = eventBusOrLogger;
-        this.logger = logger;
-      } else {
-        this.eventBus = undefined;
-        this.logger = (eventBusOrLogger as RuntimeLogger | undefined) ?? logger;
-      }
+      resolvedLogger = maxToolCallsPerTaskOrLogger;
     }
+
+    if (typeof loggerOrMaxTrackedTasks === "number") {
+      resolvedMaxTrackedTasks = loggerOrMaxTrackedTasks;
+    } else if (loggerOrMaxTrackedTasks !== undefined) {
+      resolvedLogger = loggerOrMaxTrackedTasks;
+    }
+
+    if (
+      !Number.isInteger(resolvedMaxTrackedTasks) ||
+      resolvedMaxTrackedTasks < 1
+    ) {
+      throw new RangeError("maxTrackedTasks must be a positive integer.");
+    }
+
+    this.logger = resolvedLogger;
     this.eventBus = eventBus;
-    this.maxTrackedTasks = maxTrackedTasks;
+    this.maxTrackedTasks = resolvedMaxTrackedTasks;
   }
 
   public getToolCallCount(taskId: string): number {
@@ -103,6 +78,7 @@ export class ActionExecutor {
     payload: TPayload,
     context: RuntimeContext
   ): Promise<TResult> {
+    // Resolve first: an unknown tool must not consume the task's call budget.
     const tool = this.toolRegistry.get(toolName);
 
     const currentCount = this.getToolCallCount(context.taskId);
@@ -110,12 +86,9 @@ export class ActionExecutor {
       assertMaxToolCalls(currentCount, this.maxToolCallsPerTask);
     }
 
-    const tool = this.toolRegistry.get(toolName);
-
-    this.toolCallCounts.set(context.taskId, currentCount + 1);
+    this.recordToolCall(context.taskId, currentCount + 1);
 
     const startedAt = Date.now();
-
     this.eventBus?.emit({
       name: "runtime.tool.invoked",
       payload: {
@@ -123,41 +96,34 @@ export class ActionExecutor {
         taskId: context.taskId,
         agentId: resolveAgentId(context.agent),
         toolName,
-      },
+        invokedAt: new Date().toISOString()
+      }
     });
 
-    try {
-      const result = await tool.execute(payload, context);
-      const duration = Date.now() - startedAt;
+    const result = (await tool.execute({ payload, context })) as TResult;
+    const durationMs = Math.max(0, Date.now() - startedAt);
 
-      this.eventBus?.emit({
-        name: "runtime.tool.success",
-        payload: {
-          runtimeId: context.runtimeId,
-          taskId: context.taskId,
-          agentId: resolveAgentId(context.agent),
-          toolName,
-          duration,
-        },
-      });
+    this.logger?.info("Tool invocation completed.", {
+      toolName,
+      durationMs
+    });
 
-      return result;
-    } catch (error) {
-      const duration = Date.now() - startedAt;
+    return result;
+  }
 
-      this.eventBus?.emit({
-        name: "runtime.tool.error",
-        payload: {
-          runtimeId: context.runtimeId,
-          taskId: context.taskId,
-          agentId: resolveAgentId(context.agent),
-          toolName,
-          duration,
-          error,
-        },
-      });
-
-      throw error;
+  private recordToolCall(taskId: string, count: number): void {
+    if (!this.toolCallCounts.has(taskId)) {
+      while (this.toolCallCounts.size >= this.maxTrackedTasks) {
+        const oldestTaskId = this.toolCallCounts.keys().next().value as
+          | string
+          | undefined;
+        if (oldestTaskId === undefined) {
+          break;
+        }
+        this.toolCallCounts.delete(oldestTaskId);
+      }
     }
+
+    this.toolCallCounts.set(taskId, count);
   }
 }
