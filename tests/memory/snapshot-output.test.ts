@@ -52,4 +52,30 @@ describe("InMemoryMemoryStore point-in-time output snapshots", () => {
     const secondOutput = secondRead[0]?.output as { nested: { count: number } };
     expect(secondOutput.nested.count).toBe(10);
   });
+
+  it("rejects output that cannot be defensively cloned without mutating history", async () => {
+    const store = new InMemoryMemoryStore();
+    const uncloneable: {
+      status: string;
+      callback: () => void;
+      self?: unknown;
+    } = {
+      status: "pending",
+      callback: () => undefined
+    };
+    uncloneable.self = uncloneable;
+
+    await expect(
+      store.append({
+        agentId: "agent-3",
+        taskId: "task-3",
+        input: "retain snapshot",
+        output: uncloneable,
+        recordedAt: new Date().toISOString()
+      })
+    ).rejects.toThrow("Memory output must be defensively cloneable.");
+
+    expect(store.size).toBe(0);
+    expect(await store.listByAgent("agent-3")).toEqual([]);
+  });
 });
