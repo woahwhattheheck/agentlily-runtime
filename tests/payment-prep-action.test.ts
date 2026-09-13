@@ -52,10 +52,45 @@ describe("PaymentPrepAction", () => {
       assetCode: "USDC",
       memo: "Invoice #1024",
       preparedAt: "2026-08-30T12:00:00.000Z",
-      transactionStubId: `stellar-stub-task-pay-1-${payload.walletId}`,
+      transactionStubId: expect.stringMatching(
+        new RegExp(`^stellar-stub-task-pay-1-${payload.walletId}-[0-9a-f]{64}$`)
+      ),
       isSimulated: true,
       metadata: { priority: "high" }
     });
+  });
+
+  it("binds stub identity to the canonical payment intent", async () => {
+    const tool = createPaymentPrepTool();
+    const context = createMockContext("task-intent-id");
+    const base: PaymentPrepPayload = {
+      walletId: "GWALLET123",
+      amount: "1.0",
+      recipientId: "GRECIPIENT1",
+      assetCode: "XLM",
+      memo: "invoice-1",
+      metadata: { source: "first" }
+    };
+
+    const original = await tool.execute({ payload: base, context });
+    const equivalent = await tool.execute({
+      payload: { ...base, amount: 1, metadata: { source: "second" } },
+      context
+    });
+
+    expect(equivalent.transactionStubId).toBe(original.transactionStubId);
+
+    const changedIntents: PaymentPrepPayload[] = [
+      { ...base, amount: "2.0" },
+      { ...base, recipientId: "GRECIPIENT2" },
+      { ...base, assetCode: "USDC" },
+      { ...base, memo: "invoice-2" }
+    ];
+
+    for (const payload of changedIntents) {
+      const changed = await tool.execute({ payload, context });
+      expect(changed.transactionStubId).not.toBe(original.transactionStubId);
+    }
   });
 
   it("handles numeric amount and defaults assetCode to XLM", async () => {
