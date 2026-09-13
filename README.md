@@ -12,7 +12,7 @@
 
 ## Stellar at a Glance
 
-- **`wallet.prepare_payment` tool (shipped today)** — a real, typed tool an AgentLily invokes to prepare a payment for its wallet: it validates the wallet and amount, defaults the asset to **native `XLM`**, and returns a simulated **Stellar transaction stub** (`stellar-stub-<taskId>-<walletId>-<sha256-intent>`) — no live network call, safe for contributors to extend toward real submission. The digest binds recipient, asset, canonical amount in stroops, and memo so distinct payment intents cannot share a stub ID; metadata is audit context and does not change payment identity.
+- **`wallet.prepare_payment` tool (shipped today)** — a real, typed tool an AgentLily invokes to prepare a payment for its wallet: it validates the wallet and amount, defaults the asset to native **`XLM`**, requires a validated issuer for non-native classic assets, enforces Stellar classic asset-code rules and the 28-byte `MEMO_TEXT` limit, and returns a simulated **Stellar transaction stub** (`stellar-stub-<taskId>-<walletId>-<sha256-intent>`) — no live network call, safe for contributors to extend toward real submission. The digest binds recipient, complete asset identity, canonical amount in stroops, and memo so distinct payment intents cannot share a stub ID; metadata is audit context and does not change payment identity.
 - **Payment-aware action boundary** — `src/actions/` shows how wallet/payment actions are structured; the scaffolding for executing against the live **Stellar network** (via Lily backend + Soroban contracts) is intentionally open contributor work.
 - **Event-driven & auditable** — every task and tool invocation emits runtime events so Stellar finance actions are traceable from intent → prepared transaction stub.
 
@@ -20,7 +20,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  AgentLily (autonomous finance agent)                       │
 │   AgentRuntime ── tasks ── tools ── events ── memory        │
-│   └ wallet.prepare_payment → validated Stellar XLM stub     │
+│   └ wallet.prepare_payment → validated Stellar payment stub │
 └──────────────────────────┬──────────────────────────────────┘
                            │ future: execute via Lily Protocol API
                            ▼
@@ -168,7 +168,25 @@ const prepared = await runtime.executeTask({
 // }
 ```
 
-For stub identity, equivalent Stellar amount spellings resolve through their exact stroop value, so `"1"`, `"1.0"`, and numeric `1` share an ID when the rest of the payment intent is unchanged. Changing the recipient, asset, amount, or memo changes the ID. `metadata` is returned for audit context but is intentionally excluded from payment identity.
+For a non-native classic Stellar asset, provide both its 1–12 character alphanumeric code and the issuing `G...` account. Code alone is intentionally rejected because the issuer is part of the asset's identity. Native `XLM` must omit `assetIssuer`:
+
+```ts
+const issuedAssetPayment = await runtime.executeTask({
+  agentId: "agentlily_treasury",
+  taskId: "pay-002",
+  toolName: "wallet.prepare_payment",
+  input: "Prepare an issued-asset payment",
+  payload: {
+    walletId: "wallet_treasury",
+    amount: "10",
+    assetCode: "USD",
+    assetIssuer: "GC2BKLYOOYPDEFJKLKY6FNNRQMGFLVHJKQRGNSSRRGSMPGF32LHCQVGF",
+    memo: "invoice-42"
+  }
+});
+```
+
+When `memo` is present, this tool treats it as Stellar `MEMO_TEXT` and rejects values over 28 UTF-8 bytes. For stub identity, equivalent Stellar amount spellings resolve through their exact stroop value, so `"1"`, `"1.0"`, and numeric `1` share an ID when the rest of the payment intent is unchanged. Changing the recipient, full asset identity (code or issuer), amount, or memo changes the ID. `metadata` is returned for audit context but is intentionally excluded from payment identity. Existing native-XLM stub IDs retain the same canonical `"XLM"` asset identity used before issuer-aware support.
 
 ## Runtime Events
 
@@ -198,7 +216,10 @@ import {
 
 const eventBus = new RuntimeEventBus();
 
-// Subscribe to task completion and failure events
+eventBus.on("runtime.started", (event) => {
+  console.log(`Runtime started at ${event.payload.occurredAt}`);
+});
+
 const unsubscribeCompleted = eventBus.on("runtime.task.completed", (event) => {
   console.log(
     `Task ${event.payload.taskId} completed in ${event.payload.durationMs}ms`
@@ -207,11 +228,6 @@ const unsubscribeCompleted = eventBus.on("runtime.task.completed", (event) => {
 
 const unsubscribeFailed = eventBus.on("runtime.task.failed", (event) => {
   console.error(`Task ${event.payload.taskId} failed: ${event.payload.reason}`);
-});
-
-// Single-fire listener
-eventBus.once("runtime.started", (event) => {
-  console.log(`Runtime started at ${event.payload.occurredAt}`);
 });
 
 const runtime = new AgentRuntime({
@@ -247,7 +263,7 @@ Each entry appended to the storage file satisfies the `MemoryEntry` interface:
 | :----------- | :-------- | :----------------------------------------------- |
 | `agentId`    | `string`  | ID of the agent associated with the task         |
 | `taskId`     | `string`  | Unique identifier of the task                    |
-| `input`      | `string`  | Input prompt or command given to the task        |
+| `input`      | `string`  | Input prompt or command given to the task         |
 | `output`     | `unknown` | Tool execution output or result                  |
 | `recordedAt` | `string`  | ISO 8601 timestamp of when the entry was written |
 
