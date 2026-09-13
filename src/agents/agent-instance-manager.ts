@@ -46,10 +46,6 @@ export class AgentInstanceManager {
     return created;
   }
 
-  public getEvictionCount(): number {
-    return this.evictionCount;
-  }
-
   public get(agentId: string): AgentInstance | undefined {
     return this.instances.get(agentId);
   }
