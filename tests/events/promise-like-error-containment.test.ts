@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeEventBus } from "../../src/events/runtime-events.js";
 
@@ -17,8 +18,7 @@ function rejectedThenable(message: string) {
 }
 
 async function flushPromiseLikeRejections(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("RuntimeEventBus PromiseLike error containment", () => {
@@ -41,6 +41,30 @@ describe("RuntimeEventBus PromiseLike error containment", () => {
       expect.objectContaining({ message: "thenable listener boom" })
     );
     expect(internalErrors).toEqual(["thenable listener boom"]);
+
+    errorSpy.mockRestore();
+  });
+
+  it("routes rejected cross-realm promises and preserves their message", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const observer = vi.fn();
+    const bus = new RuntimeEventBus({ onListenerError: observer });
+    const internalErrors: string[] = [];
+    const foreignPromise = runInNewContext(
+      "Promise.reject(new Error('foreign listener boom'))"
+    ) as PromiseLike<never>;
+
+    expect(foreignPromise).not.toBeInstanceOf(Promise);
+    bus.on("runtime.internal.error", (event) => {
+      internalErrors.push(event.payload.errorMessage);
+    });
+    bus.on("runtime.started", () => foreignPromise);
+
+    bus.emit(startedEvent("rt-listener-foreign"));
+    await flushPromiseLikeRejections();
+
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(internalErrors).toEqual(["foreign listener boom"]);
 
     errorSpy.mockRestore();
   });
