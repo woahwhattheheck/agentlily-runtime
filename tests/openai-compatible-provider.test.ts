@@ -117,7 +117,7 @@ describe("OpenAICompatibleModelProvider", () => {
     });
   });
 
-  it("reads a successful response body exactly once", async () => {
+  it("reads successful responses through the bounded stream path", async () => {
     const response = new Response(
       JSON.stringify({
         model: "gpt-4o-mini",
@@ -132,7 +132,60 @@ describe("OpenAICompatibleModelProvider", () => {
     await expect(
       provider.generate({ instructions: "Instructions", input: "Input" })
     ).resolves.toMatchObject({ outputText: "Read once" });
-    expect(textSpy).toHaveBeenCalledTimes(1);
+    expect(textSpy).not.toHaveBeenCalled();
+  });
+
+  it("preserves UTF-8 characters split across response stream chunks", async () => {
+    const encoder = new TextEncoder();
+    const emoji = encoder.encode("😀");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('{"choices":[{"message":{"content":"split ')
+        );
+        controller.enqueue(emoji.slice(0, 2));
+        controller.enqueue(emoji.slice(2));
+        controller.enqueue(encoder.encode(' works"}}]}'));
+        controller.close();
+      }
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(body, { status: 200 })
+    );
+    const provider = new OpenAICompatibleModelProvider({ apiKey: "test-key" });
+
+    await expect(
+      provider.generate({ instructions: "test", input: "test" })
+    ).resolves.toMatchObject({ outputText: "split 😀 works" });
+  });
+
+  it("cancels and rejects successful response bodies larger than 8 MiB", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(body, { status: 200 })
+    );
+    const provider = new OpenAICompatibleModelProvider({ apiKey: "test-key" });
+
+    const failure = await provider
+      .generate({ instructions: "test", input: "test" })
+      .catch((error: unknown) => error);
+
+    expect(cancelled).toBe(true);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "OpenAI-compatible provider response body exceeded 8388608 bytes (HTTP 200)."
+    );
+    expect("cause" in (failure as Error & { cause?: unknown })).toBe(false);
   });
 
   it("supports custom baseUrl and custom headers", async () => {
@@ -327,10 +380,14 @@ describe("OpenAICompatibleModelProvider", () => {
   });
 
   it("sanitizes successful-response body-reader failures", async () => {
-    const bodyFailure = new Error("connection closed during response");
-    const response = new Response("", { status: 200 });
-    vi.spyOn(response, "text").mockRejectedValueOnce(bodyFailure);
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(response);
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new Error("connection closed during response SECRET_DETAIL");
+      }
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(body, { status: 200 })
+    );
     const provider = new OpenAICompatibleModelProvider({ apiKey: "test-key" });
 
     const failure = await provider
@@ -341,6 +398,7 @@ describe("OpenAICompatibleModelProvider", () => {
     expect((failure as Error).message).toBe(
       "OpenAI-compatible provider could not read HTTP 200 response body."
     );
+    expect((failure as Error).message).not.toContain("SECRET_DETAIL");
     expect("cause" in (failure as Error & { cause?: unknown })).toBe(false);
   });
 });
