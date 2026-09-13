@@ -14,6 +14,8 @@ Creating a directory is used as the cross-process create-if-absent primitive. Ev
 
 This matters when multiple Node.js processes share the same `taskClaimStoragePath`: without a process-shared critical section, two processes can both observe an unclaimed task ID and both execute the same externally-effectful task.
 
+Every process that shares one claim file must participate in this lock protocol. During a rolling upgrade, a pre-lock runtime can still race a locking runtime because the older process does not honor the adjacent lock directory; do not run mixed versions against the same claim path while externally-effectful tasks are enabled.
+
 ## Fail-closed crash behavior
 
 If another process owns the lock, operations retry briefly. The built-in defaults are:
