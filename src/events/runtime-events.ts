@@ -85,6 +85,14 @@ export class RuntimeEventListenerLimitError extends Error {
 type Listener = RuntimeEventListener<RuntimeEventName>;
 type OnceListener = Listener & { originalListener?: Listener };
 
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 export class RuntimeEventBus {
   private readonly listeners = new Map<RuntimeEventName, Set<Listener>>();
   private readonly maxListeners: number;
@@ -203,8 +211,8 @@ export class RuntimeEventBus {
 
       try {
         const result = listener(event) as unknown;
-        if (result instanceof Promise) {
-          result.catch((error: unknown) => {
+        if (isPromiseLike(result)) {
+          Promise.resolve(result).catch((error: unknown) => {
             this.handleListenerError(event.name, error);
           });
         }
