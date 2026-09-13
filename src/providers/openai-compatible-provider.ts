@@ -61,16 +61,12 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       );
     }
 
-    // generate() appends a fixed path segment. Query strings and fragments on
-    // the configured base would capture that suffix as query/fragment text
-    // instead of routing to /chat/completions, including empty `?` / `#`
-    // markers that URL.search / URL.hash normalize to empty strings.
-    if (
-      parsedBaseUrl.href.includes("?") ||
-      parsedBaseUrl.href.includes("#")
-    ) {
+    // Fragments are never sent to the HTTP server, so accepting one would make
+    // the configured endpoint differ from the endpoint that is actually used.
+    // Detect even an empty trailing `#`, which URL.hash normalizes to "".
+    if (parsedBaseUrl.href.includes("#")) {
       throw new Error(
-        "OpenAI-compatible provider baseUrl must not include a query string or fragment."
+        "OpenAI-compatible provider baseUrl must not include a fragment."
       );
     }
 
@@ -102,7 +98,9 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   }
 
   public async generate(prompt: ModelPrompt): Promise<ModelResponse> {
-    const url = `${this.baseUrl}/chat/completions`;
+    const endpoint = new URL(this.baseUrl);
+    endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, "")}/chat/completions`;
+    const url = endpoint.toString();
     const payload = {
       model: this.model,
       messages: [
