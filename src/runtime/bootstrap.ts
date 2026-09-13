@@ -13,6 +13,10 @@ import { ToolRegistry } from "../tools/tool-registry.js";
 import type { RuntimeOptions } from "./types.js";
 
 export function createRuntimeDependencies(options: RuntimeOptions) {
+  if (typeof options.runtimeId !== "string" || options.runtimeId.trim().length === 0) {
+    throw new TypeError("runtimeId must be a non-empty string.");
+  }
+
   const toolRegistry = new ToolRegistry();
   if (options.tools !== undefined) {
     for (const tool of options.tools) {
