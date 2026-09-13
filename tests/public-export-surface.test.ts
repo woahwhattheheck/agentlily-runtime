@@ -12,6 +12,8 @@ describe("Public export surface of src/index.ts", () => {
     "InMemoryMemoryStore",
     "UnconfiguredModelProvider",
     "InMemoryRuntimeStateStore",
+    "InMemoryTaskClaimStore",
+    "JsonFileTaskClaimStore",
     "TaskRunner",
     "ToolRegistry"
   ];

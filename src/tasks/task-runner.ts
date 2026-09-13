@@ -3,6 +3,10 @@ import { RuntimeError } from "../errors/runtime-errors.js";
 import { assertNonEmptyValue } from "../guards/runtime-guards.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import type { RuntimeContext } from "../runtime/context.js";
+import {
+  InMemoryTaskClaimStore,
+  type TaskClaimStore
+} from "./task-claim-store.js";
 import type { RuntimeTask, TaskExecutionResult } from "./task-types.js";
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -10,6 +14,7 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 export class TaskRunner {
   private readonly actionExecutor: ActionExecutor;
   private readonly memoryStore: MemoryStore;
+  private readonly taskClaimStore: TaskClaimStore;
   private readonly timeoutMs: number | undefined;
   private readonly activeExecutions = new Map<string, Promise<void>>();
   private readonly unknownOutcomeTaskIds = new Set<string>();
@@ -17,7 +22,8 @@ export class TaskRunner {
   public constructor(
     actionExecutor: ActionExecutor,
     memoryStore: MemoryStore,
-    timeoutMs?: number
+    timeoutMs?: number,
+    taskClaimStore: TaskClaimStore = new InMemoryTaskClaimStore()
   ) {
     if (
       timeoutMs !== undefined &&
@@ -32,15 +38,10 @@ export class TaskRunner {
 
     this.actionExecutor = actionExecutor;
     this.memoryStore = memoryStore;
+    this.taskClaimStore = taskClaimStore;
     this.timeoutMs = timeoutMs;
   }
 
-  /**
-   * Returns a settlement-only promise while the underlying tool invocation for
-   * a task ID is still executing. A timeout may reject the public task before
-   * this promise settles; callers can use it to retain lifecycle custody until
-   * the tool itself has actually stopped running.
-   */
   public getActiveExecution(taskId: string): Promise<void> | undefined {
     return this.activeExecutions.get(taskId);
   }
@@ -49,8 +50,6 @@ export class TaskRunner {
     task: RuntimeTask<TPayload>,
     context: RuntimeContext
   ): Promise<TaskExecutionResult<TResult>> {
-    // Task fields are validated in AgentRuntime.executeTask() before event emission;
-    // this check is preserved to guard direct TaskRunner callers.
     assertNonEmptyValue(task.taskId, "taskId");
     assertNonEmptyValue(task.agentId, "agentId");
     assertNonEmptyValue(task.toolName, "toolName");
@@ -74,23 +73,36 @@ export class TaskRunner {
     }
 
     if (this.unknownOutcomeTaskIds.has(task.taskId)) {
-      throw new RuntimeError(
-        "TASK_OUTCOME_UNKNOWN",
-        `Task "${task.taskId}" cannot be retried safely because its durable outcome is unknown after a previous execution.`,
-        { taskId: task.taskId }
-      );
+      throw this.unknownOutcomeError(task.taskId);
+    }
+
+    // The claim is durable before tool invocation. A prior process that died
+    // after an external side effect but before result persistence therefore
+    // leaves a tombstone that a fresh runtime can observe before re-execution.
+    const claimed = await this.taskClaimStore.claim(task.taskId);
+    if (!claimed) {
+      this.unknownOutcomeTaskIds.add(task.taskId);
+      throw this.unknownOutcomeError(task.taskId);
     }
 
     const startTime = performance.now();
     const startedAt = new Date().toISOString();
 
-    // Tool execution errors are part of the tool contract and must propagate
-    // unchanged so callers retain the original error identity and code.
-    const output = await this.executeWithTimeout<TPayload, TResult>(
-      task.toolName,
-      task.payload,
-      context
-    );
+    let output: TResult;
+    try {
+      output = await this.executeWithTimeout<TPayload, TResult>(
+        task.toolName,
+        task.payload,
+        context
+      );
+    } catch (error) {
+      // Timeout is ambiguous because the underlying promise may keep running.
+      // Ordinary tool rejection retains the historical retry contract.
+      if (!this.unknownOutcomeTaskIds.has(task.taskId)) {
+        await this.releaseClaimSafely(task.taskId);
+      }
+      throw error;
+    }
 
     const endTime = performance.now();
     const completedAt = new Date().toISOString();
@@ -105,20 +117,19 @@ export class TaskRunner {
         recordedAt: completedAt
       });
     } catch (error) {
-      // The tool already resolved successfully before persistence began. Its
-      // side effect may therefore be complete even though no durable task result
-      // exists. Retire this logical task ID so a retry cannot execute that side
-      // effect a second time under a false-failure response.
+      // Keep the already-durable pre-execution claim. The tool resolved before
+      // persistence failed, so retrying this logical ID could repeat a side effect.
       this.unknownOutcomeTaskIds.add(task.taskId);
-
-      // Persistence failures are runtime execution failures even when the
-      // underlying store happens to throw a typed RuntimeError of its own.
       throw new RuntimeError(
         "EXECUTION_FAILED",
         error instanceof Error ? error.message : "Task execution failed.",
         error instanceof Error ? { cause: error.message } : undefined
       );
     }
+
+    // Once the result is durable the outcome is known and deliberate ID reuse
+    // remains supported. Cleanup failure is fail-closed rather than executable.
+    await this.releaseClaimSafely(task.taskId);
 
     return {
       taskId: task.taskId,
@@ -129,6 +140,25 @@ export class TaskRunner {
       completedAt,
       durationMs
     };
+  }
+
+  private unknownOutcomeError(taskId: string): RuntimeError {
+    return new RuntimeError(
+      "TASK_OUTCOME_UNKNOWN",
+      `Task "${taskId}" cannot be retried safely because its durable outcome is unknown after a previous execution.`,
+      { taskId }
+    );
+  }
+
+  private async releaseClaimSafely(taskId: string): Promise<void> {
+    try {
+      await this.taskClaimStore.release(taskId);
+      this.unknownOutcomeTaskIds.delete(taskId);
+    } catch {
+      // If cleanup cannot be proven, retain the local tombstone too. A durable
+      // store that failed to release should still contain its original claim.
+      this.unknownOutcomeTaskIds.add(taskId);
+    }
   }
 
   private async executeWithTimeout<TPayload, TResult>(
@@ -142,10 +172,6 @@ export class TaskRunner {
       context
     );
 
-    // Keep a rejection-safe settlement promise separate from the public result.
-    // If the deadline wins Promise.race(), the tool can still be running; this
-    // record lets AgentRuntime retain the task ID, drain promise, and call budget
-    // until that underlying invocation actually settles.
     const settlement = execution.then(
       () => undefined,
       () => undefined
@@ -158,7 +184,6 @@ export class TaskRunner {
     });
 
     const timeoutMs = this.timeoutMs;
-
     if (timeoutMs === undefined) {
       return execution;
     }
@@ -166,11 +191,9 @@ export class TaskRunner {
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        // JavaScript timeouts do not cancel arbitrary tool promises. Once the
-        // deadline wins, the caller cannot know whether the underlying tool
-        // already performed (or will later perform) a side effect. Retire this
-        // task ID for the lifetime of the TaskRunner so a same-ID retry cannot
-        // convert an ambiguous outcome into a duplicate side effect.
+        // A JavaScript timeout does not cancel an arbitrary tool promise. Keep
+        // the pre-execution claim so this or a restarted runtime cannot duplicate
+        // an outcome that may already have happened externally.
         this.unknownOutcomeTaskIds.add(context.taskId);
         reject(
           new RuntimeError(

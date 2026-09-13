@@ -4,6 +4,7 @@ import type { MemoryStore } from "../memory/memory-store.js";
 import type { ToolPolicy } from "../policies/tool-policy.js";
 import type { ModelProvider } from "../providers/model-provider.js";
 import type { RuntimeStateStore } from "../state/runtime-state.js";
+import type { TaskClaimStore } from "../tasks/task-claim-store.js";
 import type { ToolDefinition } from "../tools/types.js";
 
 export interface RuntimeOptions {
@@ -23,6 +24,18 @@ export interface RuntimeOptions {
   maxTaskDurationMs?: number;
   memoryStore?: MemoryStore;
   memoryStoragePath?: string | undefined;
+  /**
+   * Safety authority for task IDs that may have an ambiguous side-effect
+   * outcome. Supply a durable implementation to preserve the fence across
+   * process restarts.
+   */
+  taskClaimStore?: TaskClaimStore;
+  /**
+   * File path for the built-in durable task claim authority. When omitted and
+   * `memoryStoragePath` selects the built-in file memory store, a sidecar path
+   * of `<memoryStoragePath>.task-claims.json` is used automatically.
+   */
+  taskClaimStoragePath?: string | undefined;
   modelProvider?: ModelProvider;
   logger?: RuntimeLogger;
   stateStore?: RuntimeStateStore;
