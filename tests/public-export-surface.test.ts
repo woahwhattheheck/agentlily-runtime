@@ -10,15 +10,23 @@ describe("Public export surface of src/index.ts", () => {
     "RuntimeEventBus",
     "InMemoryRuntimeLogger",
     "InMemoryMemoryStore",
+    "InMemoryToolApprovalStore",
+    "ToolApprovalPolicy",
     "UnconfiguredModelProvider",
     "InMemoryRuntimeStateStore",
     "InMemoryTaskClaimStore",
     "JsonFileTaskClaimStore",
     "TaskRunner",
-    "ToolRegistry"
+    "ToolRegistry",
+    "AllOfToolPolicy",
+    "StellarPaymentIntentPolicy",
+    "ToolAllowlistPolicy"
   ];
 
-  const expectedFunctions = ["createRuntimeDependencies"];
+  const expectedFunctions = [
+    "createRuntimeDependencies",
+    "digestToolApprovalPayload"
+  ];
 
   it("exports all expected classes", () => {
     for (const name of expectedClasses) {
