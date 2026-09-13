@@ -109,6 +109,69 @@ describe("ActionExecutor", () => {
     expect(executor.getToolCallCount("task-2")).toBe(2);
   });
 
+  it("fails closed instead of evicting an enforcement-bearing task budget", async () => {
+    const registry = new ToolRegistry();
+    let calls = 0;
+    registry.register({
+      name: "ping",
+      description: "Ping tool",
+      execute() {
+        calls++;
+        return "pong";
+      }
+    });
+
+    const executor = new ActionExecutor(registry, 1, undefined, 1);
+    const taskA = createMockContext("task-a");
+    const taskB = createMockContext("task-b");
+
+    await expect(executor.execute("ping", {}, taskA)).resolves.toBe("pong");
+    expect(executor.getToolCallCount(taskA.taskId)).toBe(1);
+
+    // Tracking pressure from another task must not erase task A's consumed
+    // quota. Reject before invoking task B rather than fail open on task A.
+    await expect(executor.execute("ping", {}, taskB)).rejects.toMatchObject({
+      code: "MAX_TOOL_CALLS_EXCEEDED",
+      details: { taskId: "task-b", maxTrackedTasks: 1 }
+    });
+    expect(calls).toBe(1);
+    expect(executor.getToolCallCount(taskA.taskId)).toBe(1);
+    expect(executor.getToolCallCount(taskB.taskId)).toBe(0);
+
+    await expect(executor.execute("ping", {}, taskA)).rejects.toMatchObject({
+      code: "MAX_TOOL_CALLS_EXCEEDED"
+    });
+    expect(calls).toBe(1);
+
+    // Completed task lifecycles explicitly release tracking capacity.
+    executor.reset(taskA.taskId);
+    await expect(executor.execute("ping", {}, taskB)).resolves.toBe("pong");
+    expect(calls).toBe(2);
+    expect(executor.getToolCallCount(taskB.taskId)).toBe(1);
+  });
+
+  it("keeps FIFO bounded tracking when no per-task quota is configured", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "ping",
+      description: "Ping tool",
+      execute() {
+        return "pong";
+      }
+    });
+
+    const executor = new ActionExecutor(registry, undefined, undefined, 1);
+    const taskA = createMockContext("task-a-unbounded");
+    const taskB = createMockContext("task-b-unbounded");
+
+    await executor.execute("ping", {}, taskA);
+    expect(executor.getToolCallCount(taskA.taskId)).toBe(1);
+
+    await executor.execute("ping", {}, taskB);
+    expect(executor.getToolCallCount(taskA.taskId)).toBe(0);
+    expect(executor.getToolCallCount(taskB.taskId)).toBe(1);
+  });
+
   it("rejects negative maxToolCallsPerTask limits", () => {
     const registry = new ToolRegistry();
 
