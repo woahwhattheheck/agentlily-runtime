@@ -265,7 +265,7 @@ Each entry appended to the storage file satisfies the `MemoryEntry` interface:
 | :----------- | :-------- | :----------------------------------------------- |
 | `agentId`    | `string`  | ID of the agent associated with the task         |
 | `taskId`     | `string`  | Unique identifier of the task                    |
-| `input`      | `string`  | Input prompt or command given to the task         |
+| `input`      | `string`  | Input prompt or command given to the task        |
 | `output`     | `unknown` | Tool execution output or result                  |
 | `recordedAt` | `string`  | ISO 8601 timestamp of when the entry was written |
 
