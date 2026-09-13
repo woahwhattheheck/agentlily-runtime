@@ -69,7 +69,7 @@ const cloneOutput = (val: unknown): unknown => {
     try {
       return JSON.parse(JSON.stringify(val));
     } catch {
-      return val;
+      throw new TypeError("Memory output must be defensively cloneable.");
     }
   }
 };
