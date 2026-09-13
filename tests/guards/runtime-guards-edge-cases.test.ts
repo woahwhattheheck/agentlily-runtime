@@ -50,6 +50,23 @@ describe("assertNonEmptyValue edge cases (Issue #152)", () => {
     }
   });
 
+  it("rejects non-string runtime values with the typed error contract", () => {
+    const invalidValues: unknown[] = [null, undefined, 0, false, {}, []];
+
+    for (const value of invalidValues) {
+      try {
+        assertNonEmptyValue(value, "field");
+        expect.fail("should have thrown");
+      } catch (e) {
+        expect(e).toBeInstanceOf(RuntimeError);
+        const err = e as RuntimeError;
+        expect(err.code).toBe("INVALID_TASK");
+        expect(err.details?.fieldName).toBe("field");
+        expect(err.message).toContain("field must be a non-empty string");
+      }
+    }
+  });
+
   it("rejects single space character", () => {
     expect(() => assertNonEmptyValue(" ", "x")).toThrow(RuntimeError);
   });
