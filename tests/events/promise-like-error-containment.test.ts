@@ -11,7 +11,10 @@ function startedEvent(runtimeId: string) {
 
 function rejectedThenable(message: string) {
   return {
-    then(resolve: (value?: unknown) => void, reject: (reason: unknown) => void) {
+    then(
+      resolve: (value?: unknown) => void,
+      reject: (reason: unknown) => void
+    ) {
       void resolve;
       reject(new Error(message));
     }
