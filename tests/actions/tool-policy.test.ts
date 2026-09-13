@@ -151,7 +151,7 @@ describe("runtime tool policies", () => {
     });
   });
 
-  it("fails closed when a policy evaluator throws", async () => {
+  it("fails closed without leaking a throwing policy diagnostic", async () => {
     const registry = new ToolRegistry();
     const execute = vi.fn(() => "unsafe");
     registry.register({
@@ -164,25 +164,38 @@ describe("runtime tool policies", () => {
     const denied = vi.fn();
     eventBus.on("runtime.tool.denied", denied);
 
+    const sentinel = "sk-live-policy-secret-SENTINEL";
     const policy: ToolPolicy = {
       evaluate: async () => {
-        throw new Error("policy backend unavailable");
+        throw new Error(`provider failed with credential ${sentinel}`);
       }
     };
     const executor = createExecutor(registry, policy, eventBus);
 
-    await expect(
-      executor.execute("unstable", {}, createMockContext("fail-closed-task"))
-    ).rejects.toMatchObject({
+    let rejection: unknown;
+    try {
+      await executor.execute(
+        "unstable",
+        {},
+        createMockContext("fail-closed-task")
+      );
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toMatchObject({
       name: "RuntimeError",
       code: "TOOL_POLICY_DENIED",
       details: {
         toolName: "unstable",
         taskId: "fail-closed-task",
-        cause: "policy backend unavailable"
+        reason: 'Tool "unstable" denied because policy evaluation failed.'
       }
     });
-
+    expect(
+      JSON.stringify((rejection as { toJSON(): unknown }).toJSON())
+    ).not.toContain(sentinel);
+    expect(JSON.stringify(denied.mock.calls[0]![0])).not.toContain(sentinel);
     expect(execute).not.toHaveBeenCalled();
     expect(executor.getToolCallCount("fail-closed-task")).toBe(0);
     expect(denied).toHaveBeenCalledTimes(1);
