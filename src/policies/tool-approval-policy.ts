@@ -100,7 +100,7 @@ function canonicalizePayload(value: unknown, visited: Set<object>): string {
 
   if (visited.has(value)) {
     throw new TypeError(
-      "Approval payload must be an acyclic tree without shared references."
+      "Approval payload must not contain cycles or shared references."
     );
   }
   visited.add(value);
