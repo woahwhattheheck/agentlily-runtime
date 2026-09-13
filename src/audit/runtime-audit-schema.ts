@@ -15,6 +15,9 @@ export const RUNTIME_AUDIT_VERSION = "agentlily.runtime-audit/v1" as const;
 export const DEFAULT_RUNTIME_AUDIT_MAX_RECORD_BYTES = 64 * 1024;
 export const RUNTIME_AUDIT_SHA256_HEX = /^[0-9a-f]{64}$/;
 
+// Keep this catalog explicit: Record<RuntimeEventName, true> is the compile-time
+// drift fence that forces every newly-added runtime lifecycle event to make an
+// intentional auditability decision in the same integration window.
 const RUNTIME_AUDIT_EVENT_CATALOG = {
   "runtime.internal.error": true,
   "runtime.started": true,
@@ -22,6 +25,7 @@ const RUNTIME_AUDIT_EVENT_CATALOG = {
   "runtime.task.received": true,
   "runtime.task.completed": true,
   "runtime.task.failed": true,
+  "runtime.task.reconciled": true,
   "runtime.tool.invoked": true,
   "runtime.tool.denied": true
 } satisfies Record<RuntimeEventName, true>;
