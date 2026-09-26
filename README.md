@@ -254,8 +254,9 @@ Each entry appended to the storage file satisfies the `MemoryEntry` interface:
 ### Durability & Concurrency Caveats
 
 - **File Rewrites:** `JsonFileMemoryStore` reads and rewrites the entire JSON array on each append (`flush()`), making it suitable for development, testing, or low-throughput scenarios rather than high-frequency production pipelines.
-- **No Inherent Capacity Limit:** Unlike `InMemoryMemoryStore`, `JsonFileMemoryStore` currently does not enforce global FIFO eviction or per-agent capacity limits; entries grow monotonically unless cleared manually via `clear()`.
-- **Multi-Process Concurrency:** Concurrent writes across multiple Node.js processes targeting the same file path without external file locking may cause race conditions or lost updates.
+- **Capacity:** `JsonFileMemoryStore` retains at most 10,000 entries by default, with global FIFO eviction. `maxEntries` configures that bound. `maxEntriesPerAgent` optionally bounds each agent's retained entries; its default of `0` leaves per-agent growth unbounded within the global limit.
+- **Multi-Process Concurrency:** Appends and clears targeting the same resolved path serialize their complete read/modify/atomic-rename operation through an adjacent `<path>.lock` directory. Use a local filesystem with atomic directory creation and rename, one shared path spelling, and this implementation in every writer. Read operations return a complete retained file without taking the writer lock. The storage path is resolved when the store is constructed, so later working-directory changes cannot redirect it.
+- **Contention and Interrupted Writers:** Lock acquisition waits up to 5,000 ms, then raises `RuntimeError` with code `STORAGE_LOCKED` without changing history. Direct `JsonFileMemoryStore` callers can set `lockTimeoutMs` (including `0` for immediate failure) and positive `lockRetryDelayMs` (default 10 ms). A process that exits while holding the lock can leave the directory behind. The store never steals or expires it: stop or reconcile all writers, inspect the retained JSON, and remove the empty lock directory only after confirming no writer can still commit. A history record is not provider evidence or permission to repeat an external action.
 
 ## Scripts
 

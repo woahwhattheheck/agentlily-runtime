@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { RuntimeError } from "../errors/runtime-errors.js";
 
 export interface MemoryEntry {
@@ -204,6 +205,10 @@ export interface JsonFileMemoryStoreOptions {
    * Default: unbounded. Set to 0 for unbounded per-agent growth.
    */
   maxEntriesPerAgent?: number;
+  /** Maximum wait for another process's writer lock. Default: 5,000 ms. */
+  lockTimeoutMs?: number;
+  /** Delay between writer-lock attempts. Default: 10 ms. */
+  lockRetryDelayMs?: number;
 }
 
 const fileOperationQueues = new Map<string, Promise<void>>();
@@ -231,12 +236,18 @@ const serializeFileOperation = <T>(
 
 export class JsonFileMemoryStore implements MemoryStore {
   private readonly filePath: string;
+  private readonly storagePath: string;
+  private readonly lockTimeoutMs: number;
+  private readonly lockRetryDelayMs: number;
 
   public readonly maxEntries: number;
   public readonly maxEntriesPerAgent: number;
 
   public constructor(filePath: string, options: JsonFileMemoryStoreOptions = {}) {
     this.filePath = filePath;
+    this.storagePath = resolve(filePath);
+    this.lockTimeoutMs = options.lockTimeoutMs ?? 5_000;
+    this.lockRetryDelayMs = options.lockRetryDelayMs ?? 10;
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_MEMORY_ENTRIES;
     this.maxEntriesPerAgent = options.maxEntriesPerAgent ?? 0;
 
@@ -249,6 +260,16 @@ export class JsonFileMemoryStore implements MemoryStore {
     ) {
       throw new RangeError("maxEntriesPerAgent must be a non-negative integer.");
     }
+    for (const [name, value, minimum] of [
+      ["lockTimeoutMs", this.lockTimeoutMs, 0],
+      ["lockRetryDelayMs", this.lockRetryDelayMs, 1]
+    ] as const) {
+      if (!Number.isInteger(value) || value < minimum || value > 2_147_483_647) {
+        throw new RangeError(
+          `${name} must be an integer between ${minimum} and 2147483647.`
+        );
+      }
+    }
   }
 
   public getFilePath(): string {
@@ -259,12 +280,53 @@ export class JsonFileMemoryStore implements MemoryStore {
     return this.maxEntries;
   }
 
+  private serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    return serializeFileOperation(this.storagePath, async () => {
+      const lockPath = `${this.storagePath}.lock`;
+      await mkdir(dirname(this.storagePath), { recursive: true });
+      const startedAt = performance.now();
+      while (true) {
+        try {
+          // One atomic create protects the complete read/modify/rename cycle.
+          await mkdir(lockPath);
+          break;
+        } catch (error) {
+          if (
+            error === null ||
+            typeof error !== "object" ||
+            !("code" in error) ||
+            error.code !== "EEXIST"
+          ) {
+            throw error;
+          }
+          const remainingMs = this.lockTimeoutMs - (performance.now() - startedAt);
+          if (remainingMs <= 0) {
+            throw new RuntimeError(
+              "STORAGE_LOCKED",
+              `Memory storage at ${this.filePath} is locked by another process or an unreconciled prior process.`,
+              { filePath: this.filePath, lockPath, timeoutMs: this.lockTimeoutMs }
+            );
+          }
+          await delay(Math.min(this.lockRetryDelayMs, Math.max(1, remainingMs)));
+        }
+      }
+      try {
+        return await operation();
+      } finally {
+        // Never reclaim another process's lock automatically. A crash leaves
+        // it for operator reconciliation. Cleanup failure after rename must
+        // not misreport a committed append as a failed operation.
+        await rmdir(lockPath).catch(() => undefined);
+      }
+    });
+  }
+
   private async loadEntries(): Promise<MemoryEntry[]> {
-    if (!existsSync(this.filePath)) {
+    if (!existsSync(this.storagePath)) {
       return [];
     }
 
-    const raw = await readFile(this.filePath, "utf-8");
+    const raw = await readFile(this.storagePath, "utf-8");
     if (raw.trim().length === 0) {
       return [];
     }
@@ -312,19 +374,19 @@ export class JsonFileMemoryStore implements MemoryStore {
   }
 
   private async flushAtomic(entries: MemoryEntry[]): Promise<void> {
-    const dir = dirname(this.filePath);
+    const dir = dirname(this.storagePath);
     if (dir && dir !== "." && !existsSync(dir)) {
       await mkdir(dir, { recursive: true });
     }
 
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random()
+    const tempPath = `${this.storagePath}.${process.pid}.${Date.now()}.${Math.random()
       .toString(36)
       .slice(2)}.tmp`;
     const data = JSON.stringify(entries, null, 2);
 
     try {
       await writeFile(tempPath, data, "utf-8");
-      await rename(tempPath, this.filePath);
+      await rename(tempPath, this.storagePath);
     } catch (error) {
       await rm(tempPath, { force: true }).catch(() => undefined);
       throw error;
@@ -332,7 +394,7 @@ export class JsonFileMemoryStore implements MemoryStore {
   }
 
   public async size(): Promise<number> {
-    return serializeFileOperation(this.filePath, async () => {
+    return serializeFileOperation(this.storagePath, async () => {
       const entries = await this.loadEntries();
       return entries.length;
     });
@@ -347,7 +409,7 @@ export class JsonFileMemoryStore implements MemoryStore {
       recordedAt: entry.recordedAt
     };
 
-    await serializeFileOperation(this.filePath, async () => {
+    await this.serializeWrite(async () => {
       const entries = await this.loadEntries();
 
       if (this.maxEntriesPerAgent > 0) {
@@ -385,7 +447,7 @@ export class JsonFileMemoryStore implements MemoryStore {
   ): Promise<MemoryEntry[]> {
     assertListMemoryOptions(options);
 
-    return serializeFileOperation(this.filePath, async () => {
+    return serializeFileOperation(this.storagePath, async () => {
       const entries = await this.loadEntries();
       const matching = entries.filter((entry) => entry.agentId === agentId);
       const offset = options?.offset ?? 0;
@@ -398,14 +460,14 @@ export class JsonFileMemoryStore implements MemoryStore {
   }
 
   public async countByAgent(agentId: string): Promise<number> {
-    return serializeFileOperation(this.filePath, async () => {
+    return serializeFileOperation(this.storagePath, async () => {
       const entries = await this.loadEntries();
       return entries.filter((entry) => entry.agentId === agentId).length;
     });
   }
 
   public async clear(): Promise<void> {
-    await serializeFileOperation(this.filePath, async () => {
+    await this.serializeWrite(async () => {
       await this.flushAtomic([]);
     });
   }
