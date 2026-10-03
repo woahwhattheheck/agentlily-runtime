@@ -256,6 +256,7 @@ export class TaskRunner {
     let output: TResult;
     try {
       output = await this.executeWithTimeout<TPayload, TResult>(
+        task.taskId,
         task.toolName,
         task.payload,
         context
@@ -327,10 +328,13 @@ export class TaskRunner {
   }
 
   private async executeWithTimeout<TPayload, TResult>(
+    taskId: string,
     toolName: string,
     payload: TPayload,
     context: RuntimeContext
   ): Promise<TResult> {
+    // Callers, tools and policies can reassign the writable context. Keep
+    // lifecycle bookkeeping on the task identity accepted before claim I/O.
     const execution = this.actionExecutor.execute<TPayload, TResult>(
       toolName,
       payload,
@@ -341,10 +345,10 @@ export class TaskRunner {
       () => undefined,
       () => undefined
     );
-    this.activeExecutions.set(context.taskId, settlement);
+    this.activeExecutions.set(taskId, settlement);
     void settlement.then(() => {
-      if (this.activeExecutions.get(context.taskId) === settlement) {
-        this.activeExecutions.delete(context.taskId);
+      if (this.activeExecutions.get(taskId) === settlement) {
+        this.activeExecutions.delete(taskId);
       }
     });
 
@@ -359,7 +363,7 @@ export class TaskRunner {
         // A JavaScript timeout does not cancel an arbitrary tool promise. Keep
         // the pre-execution claim so this or a restarted runtime cannot duplicate
         // an outcome that may already have happened externally.
-        this.unknownOutcomeTaskIds.add(context.taskId);
+        this.unknownOutcomeTaskIds.add(taskId);
         reject(
           new RuntimeError(
             "EXECUTION_FAILED",
