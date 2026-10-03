@@ -32,6 +32,7 @@ export class AgentRuntime {
   private readonly inFlightPromises = new Map<string, Promise<void>>();
   private started = false;
   private stopped = false;
+  private stopPromise: Promise<void> | undefined;
 
   public constructor(options: RuntimeOptions) {
     this.runtimeId = options.runtimeId;
@@ -88,6 +89,9 @@ export class AgentRuntime {
   }
 
   public async stop(options: RuntimeStopOptions = {}): Promise<void> {
+    if (this.stopPromise !== undefined) {
+      return this.stopPromise;
+    }
     if (!this.started || this.stopped) {
       return;
     }
@@ -107,6 +111,26 @@ export class AgentRuntime {
     this.stopped = true;
     this.started = false;
 
+    let resolveStop!: () => void;
+    let rejectStop!: (error: unknown) => void;
+    this.stopPromise = new Promise<void>((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
+
+    // Publish the shared completion before draining or notifying listeners so
+    // concurrent and reentrant callers wait for this same shutdown.
+    void this.finishStop(drainTimeoutMs, options.clearListeners === true).then(
+      resolveStop,
+      rejectStop
+    );
+    return this.stopPromise;
+  }
+
+  private async finishStop(
+    drainTimeoutMs: number | undefined,
+    clearListeners: boolean
+  ): Promise<void> {
     const drainStartMs = Date.now();
     let strandedTaskIds: string[] = [];
 
@@ -164,7 +188,7 @@ export class AgentRuntime {
       payload: stoppedPayload
     });
 
-    if (options.clearListeners === true) {
+    if (clearListeners) {
       const eventBus = this.dependencies.eventBus as RuntimeEventBus & {
         clear?: () => void;
       };
