@@ -221,6 +221,7 @@ const asSnapshot = (
  */
 export class JsonFileTaskClaimStore implements TaskClaimStore {
   private readonly filePath: string;
+  private readonly storagePath: string;
   private readonly lockTimeoutMs: number;
   private readonly lockRetryDelayMs: number;
 
@@ -242,6 +243,9 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
     validateTimerOption(lockRetryDelayMs, "lockRetryDelayMs", 1);
 
     this.filePath = filePath;
+    // Keep the claim authority and its lock anchored even if the process later
+    // changes its working directory while a task is in flight.
+    this.storagePath = resolve(filePath);
     this.lockTimeoutMs = lockTimeoutMs;
     this.lockRetryDelayMs = lockRetryDelayMs;
   }
@@ -252,7 +256,7 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
 
   public async claim(taskId: string): Promise<boolean> {
     return serializeFileOperation(
-      this.filePath,
+      this.storagePath,
       this.lockTimeoutMs,
       this.lockRetryDelayMs,
       async () => {
@@ -274,7 +278,7 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
 
   public async release(taskId: string): Promise<void> {
     await serializeFileOperation(
-      this.filePath,
+      this.storagePath,
       this.lockTimeoutMs,
       this.lockRetryDelayMs,
       async () => {
@@ -290,7 +294,7 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
 
   public async has(taskId: string): Promise<boolean> {
     return serializeFileOperation(
-      this.filePath,
+      this.storagePath,
       this.lockTimeoutMs,
       this.lockRetryDelayMs,
       async () => {
@@ -304,7 +308,7 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
     taskId: string
   ): Promise<TaskClaimSnapshot | undefined> {
     return serializeFileOperation(
-      this.filePath,
+      this.storagePath,
       this.lockTimeoutMs,
       this.lockRetryDelayMs,
       async () => {
@@ -316,7 +320,7 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
 
   public async releaseIfMatches(claim: TaskClaimSnapshot): Promise<boolean> {
     return serializeFileOperation(
-      this.filePath,
+      this.storagePath,
       this.lockTimeoutMs,
       this.lockRetryDelayMs,
       async () => {
@@ -338,11 +342,11 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
   }
 
   private async loadClaims(): Promise<TaskClaimRecord[]> {
-    if (!existsSync(this.filePath)) {
+    if (!existsSync(this.storagePath)) {
       return [];
     }
 
-    const raw = await readFile(this.filePath, "utf-8");
+    const raw = await readFile(this.storagePath, "utf-8");
     if (raw.trim().length === 0) {
       return [];
     }
@@ -384,18 +388,18 @@ export class JsonFileTaskClaimStore implements TaskClaimStore {
   }
 
   private async flushAtomic(claims: TaskClaimRecord[]): Promise<void> {
-    const dir = dirname(this.filePath);
+    const dir = dirname(this.storagePath);
     if (dir && dir !== "." && !existsSync(dir)) {
       await mkdir(dir, { recursive: true });
     }
 
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random()
+    const tempPath = `${this.storagePath}.${process.pid}.${Date.now()}.${Math.random()
       .toString(36)
       .slice(2)}.tmp`;
 
     try {
       await writeFile(tempPath, JSON.stringify(claims, null, 2), "utf-8");
-      await rename(tempPath, this.filePath);
+      await rename(tempPath, this.storagePath);
     } catch (error) {
       await rm(tempPath, { force: true }).catch(() => undefined);
       throw error;
