@@ -75,6 +75,37 @@ const cloneOutput = (val: unknown): unknown => {
   }
 };
 
+const selectMemoryEntries = (
+  entries: readonly MemoryEntry[],
+  agentId: string,
+  options?: ListMemoryOptions
+): MemoryEntry[] => {
+  let remainingOffset = options?.offset ?? 0;
+  const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+  const selected: MemoryEntry[] = [];
+  if (limit === 0) {
+    return selected;
+  }
+
+  for (const entry of entries) {
+    if (entry.agentId !== agentId) {
+      continue;
+    }
+    if (remainingOffset > 0) {
+      remainingOffset--;
+      continue;
+    }
+    selected.push({
+      ...entry,
+      output: cloneOutput(entry.output)
+    });
+    if (selected.length >= limit) {
+      break;
+    }
+  }
+  return selected;
+};
+
 const isPersistedMemoryEntry = (
   value: unknown
 ): value is Record<string, unknown> & MemoryEntry => {
@@ -168,15 +199,7 @@ export class InMemoryMemoryStore implements MemoryStore {
   ): Promise<MemoryEntry[]> {
     assertListMemoryOptions(options);
 
-    const matching = this.entries.filter((entry) => entry.agentId === agentId);
-    const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? matching.length;
-
-    const slice = matching.slice(offset, offset + limit);
-    return slice.map((entry) => ({
-      ...entry,
-      output: cloneOutput(entry.output)
-    }));
+    return selectMemoryEntries(this.entries, agentId, options);
   }
 
   public async countByAgent(agentId: string): Promise<number> {
@@ -449,13 +472,7 @@ export class JsonFileMemoryStore implements MemoryStore {
 
     return serializeFileOperation(this.storagePath, async () => {
       const entries = await this.loadEntries();
-      const matching = entries.filter((entry) => entry.agentId === agentId);
-      const offset = options?.offset ?? 0;
-      const limit = options?.limit ?? matching.length;
-      return matching.slice(offset, offset + limit).map((entry) => ({
-        ...entry,
-        output: cloneOutput(entry.output)
-      }));
+      return selectMemoryEntries(entries, agentId, options);
     });
   }
 
