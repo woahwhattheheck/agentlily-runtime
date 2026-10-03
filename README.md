@@ -253,6 +253,8 @@ const runtime = new AgentRuntime({
 });
 ```
 
+The built-in file memory store also selects a durable task claim sidecar at `<memoryStoragePath>.task-claims.json`; set `taskClaimStoragePath` to choose a different claim file. Both stores resolve relative storage paths when they are constructed, so later `process.chdir()` calls cannot redirect task history, claim cleanup, or claim reconciliation. Direct `JsonFileTaskClaimStore.getFilePath()` calls still return the originally configured path.
+
 ### Persisted Entry Schema
 
 Each entry appended to the storage file satisfies the `MemoryEntry` interface:
