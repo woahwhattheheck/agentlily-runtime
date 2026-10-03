@@ -194,9 +194,18 @@ export class TaskRunner {
   }
 
   public async run<TPayload, TResult>(
-    task: RuntimeTask<TPayload>,
+    submittedTask: RuntimeTask<TPayload>,
     context: RuntimeContext
   ): Promise<TaskExecutionResult<TResult>> {
+    // Direct runner callers need the same stable envelope as runtime callers
+    // before claim persistence or tool execution introduces an async boundary.
+    const task: RuntimeTask<TPayload> = {
+      taskId: submittedTask.taskId,
+      agentId: submittedTask.agentId,
+      toolName: submittedTask.toolName,
+      input: submittedTask.input,
+      payload: submittedTask.payload
+    };
     assertNonEmptyValue(task.taskId, "taskId");
     assertNonEmptyValue(task.agentId, "agentId");
     assertNonEmptyValue(task.toolName, "toolName");
