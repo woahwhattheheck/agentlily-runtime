@@ -72,7 +72,10 @@ export type RuntimeEventListener<TName extends RuntimeEventName> = (
 export interface RuntimeEventBusOptions {
   /** Maximum listener registrations allowed per event name. Defaults to 100. */
   maxListeners?: number;
-  /** Optional handler invoked whenever a listener throws or rejects. */
+  /**
+   * Optional handler for listener throws or rejections. Synchronous listener
+   * failures caused by this handler are logged without re-entering it.
+   */
   onListenerError?: (error: unknown) => void;
 }
 
@@ -145,6 +148,7 @@ export class RuntimeEventBus {
   private readonly maxListeners: number;
   private readonly onListenerError: ((error: unknown) => void) | undefined;
   private isEmittingInternalError = false;
+  private isNotifyingListenerErrorObserver = false;
 
   public constructor(
     options?: number | RuntimeEventBusOptions | ((error: unknown) => void)
@@ -309,10 +313,13 @@ export class RuntimeEventBus {
   }
 
   private notifyListenerErrorObserver(error: unknown): void {
-    if (!this.onListenerError) {
+    if (!this.onListenerError || this.isNotifyingListenerErrorObserver) {
       return;
     }
 
+    // An observer may emit another event whose listener also fails. Keep that
+    // nested failure contained instead of recursively entering the observer.
+    this.isNotifyingListenerErrorObserver = true;
     try {
       const result = this.onListenerError(error) as unknown;
       if (isPromiseLike(result)) {
@@ -328,6 +335,8 @@ export class RuntimeEventBus {
         "[RuntimeEventBus] onListenerError handler failed:",
         observerError
       );
+    } finally {
+      this.isNotifyingListenerErrorObserver = false;
     }
   }
 }
