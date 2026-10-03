@@ -247,9 +247,18 @@ export class AgentRuntime {
    * but a concurrent duplicate is rejected before lifecycle side effects.
    */
   public async executeTask<TPayload, TResult>(
-    task: RuntimeTask<TPayload>
+    submittedTask: RuntimeTask<TPayload>
   ): Promise<TaskExecutionResult<TResult>> {
     assertRuntimeStarted(this.started);
+    // Caller-owned task objects may be reused while a tool awaits I/O. Retain
+    // one accepted envelope before listeners, logging, or async work can run.
+    const task: RuntimeTask<TPayload> = {
+      taskId: submittedTask.taskId,
+      agentId: submittedTask.agentId,
+      toolName: submittedTask.toolName,
+      input: submittedTask.input,
+      payload: submittedTask.payload
+    };
     assertNonEmptyValue(task.taskId, "taskId");
     assertNonEmptyValue(task.agentId, "agentId");
     assertNonEmptyValue(task.toolName, "toolName");
