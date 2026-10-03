@@ -226,6 +226,8 @@ unsubscribeCompleted();
 unsubscribeFailed();
 ```
 
+Listener failures are contained and reported through `runtime.internal.error`. An optional `onListenerError` callback can observe them. If that callback synchronously emits another event whose listener fails, the nested failure is logged without re-entering the callback. Later independent listener failures still reach the observer, and a rejected promise returned by the observer is logged without changing task execution.
+
 ## Stopping a Runtime
 
 `await runtime.stop({ drainTimeoutMs: 5_000 })` stops accepting new tasks and
