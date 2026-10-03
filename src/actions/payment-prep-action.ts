@@ -93,6 +93,9 @@ function normalizeStellarAmount(amount: string | number): {
   }
 
   const [wholePart, fractionalPart = ""] = amountStr.split(".");
+  if (wholePart === undefined) {
+    return invalidAmount(amount);
+  }
   const stroops =
     BigInt(wholePart) * STROOPS_PER_UNIT +
     BigInt(fractionalPart.padEnd(7, "0") || "0");
