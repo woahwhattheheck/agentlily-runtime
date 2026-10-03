@@ -226,6 +226,20 @@ unsubscribeCompleted();
 unsubscribeFailed();
 ```
 
+## Stopping a Runtime
+
+`await runtime.stop({ drainTimeoutMs: 5_000 })` stops accepting new tasks and
+waits up to the supplied timeout for its current tool invocations to settle.
+Concurrent calls to `stop()` wait for the same shutdown to finish; the first
+call's drain timeout and `clearListeners` option apply to all callers. The
+runtime emits one `runtime.stopped` event before the shutdown completes.
+
+Omitting `drainTimeoutMs` or setting it to `0` does not wait for active tasks.
+An explicit timeout reports any still-running task IDs in the stopped event.
+Stopping does not cancel those underlying tool invocations or permit the same
+runtime instance to restart. `clearListeners: true` removes listeners after the
+terminal event has been emitted.
+
 ## Durable Memory via JsonFileMemoryStore
 
 For persistent task history across runtime restarts, configure `memoryStoragePath` in `RuntimeOptions`. When supplied, `AgentRuntime` initializes a `JsonFileMemoryStore` backing instance instead of the default ephemeral `InMemoryMemoryStore`.
