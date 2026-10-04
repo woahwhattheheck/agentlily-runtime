@@ -124,6 +124,7 @@ const isPersistedMemoryEntry = (
 
 export class InMemoryMemoryStore implements MemoryStore {
   private readonly entries: MemoryEntry[] = [];
+  private readonly agentCounts = new Map<string, number>();
 
   public readonly maxEntries: number;
   public readonly maxEntriesPerAgent: number;
@@ -166,31 +167,33 @@ export class InMemoryMemoryStore implements MemoryStore {
       recordedAt: entry.recordedAt
     };
 
-    // Enforce the per-agent limit by evicting that agent's oldest entry.
-    if (this.maxEntriesPerAgent > 0) {
-      let agentCount = 0;
-      let oldestAgentIndex = -1;
-
-      for (let i = 0; i < this.entries.length; i++) {
-        if (this.entries[i]?.agentId === entryCopy.agentId) {
-          if (oldestAgentIndex === -1) {
-            oldestAgentIndex = i;
-          }
-          agentCount++;
-        }
-      }
-
-      if (agentCount >= this.maxEntriesPerAgent && oldestAgentIndex !== -1) {
+    // Locate an old entry only when this agent actually reaches its limit.
+    if (
+      this.maxEntriesPerAgent > 0 &&
+      (this.agentCounts.get(entryCopy.agentId) ?? 0) >= this.maxEntriesPerAgent
+    ) {
+      const oldestAgentIndex = this.entries.findIndex(
+        (candidate) => candidate.agentId === entryCopy.agentId
+      );
+      if (oldestAgentIndex !== -1) {
         this.entries.splice(oldestAgentIndex, 1);
+        this.decrementAgentCount(entryCopy.agentId);
       }
     }
 
     // Enforce the global capacity limit by evicting the oldest entry (FIFO).
     if (this.entries.length >= this.maxEntries) {
-      this.entries.shift();
+      const evicted = this.entries.shift();
+      if (evicted !== undefined) {
+        this.decrementAgentCount(evicted.agentId);
+      }
     }
 
     this.entries.push(entryCopy);
+    this.agentCounts.set(
+      entryCopy.agentId,
+      (this.agentCounts.get(entryCopy.agentId) ?? 0) + 1
+    );
   }
 
   public async listByAgent(
@@ -203,17 +206,21 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   public async countByAgent(agentId: string): Promise<number> {
-    let count = 0;
-    for (const entry of this.entries) {
-      if (entry.agentId === agentId) {
-        count++;
-      }
+    return this.agentCounts.get(agentId) ?? 0;
+  }
+
+  private decrementAgentCount(agentId: string): void {
+    const count = this.agentCounts.get(agentId) ?? 0;
+    if (count <= 1) {
+      this.agentCounts.delete(agentId);
+    } else {
+      this.agentCounts.set(agentId, count - 1);
     }
-    return count;
   }
 
   public async clear(): Promise<void> {
     this.entries.length = 0;
+    this.agentCounts.clear();
   }
 }
 
